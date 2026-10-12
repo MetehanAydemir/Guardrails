@@ -12,7 +12,8 @@ from nemoguardrails.server.experimental._application import create_proxy_applica
 
 application = create_proxy_application(
     providers=providers,
-    checker=checker,
+    rails_configs=rails_configs,
+    config_resolver=config_resolver,
     http_transport_factory=lambda: httpx.MockTransport(handler),
 )
 ```
@@ -76,7 +77,8 @@ Configure the shared pool through the existing `http_transport_factory`, for exa
 ```python
 application = create_proxy_application(
     providers=providers,
-    checker=checker,
+    rails_configs=rails_configs,
+    config_resolver=config_resolver,
     http_transport_factory=lambda: httpx.AsyncHTTPTransport(
         limits=httpx.Limits(
             max_connections=200,
@@ -111,7 +113,8 @@ async def health():
 
 application = create_proxy_application(
     providers=providers,
-    checker=checker,
+    rails_configs=rails_configs,
+    config_resolver=config_resolver,
     local_routers=(local,),
 )
 ```

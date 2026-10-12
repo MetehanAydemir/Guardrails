@@ -31,6 +31,8 @@ from nemoguardrails.server.experimental._content_checker import (
 )
 from nemoguardrails.server.experimental._runtime import get_runtime
 from nemoguardrails.server.experimental.providers.openai.integration import create_openai_chat_integration
+from nemoguardrails.server.experimental.rails import ConfigEntry
+from nemoguardrails.server.experimental.rails._repository import GuardrailsRepository
 
 
 class StaticStream(httpx.AsyncByteStream):
@@ -114,7 +116,6 @@ async def test_shared_client_does_not_persist_or_replay_caller_cookies():
 
     application = create_proxy_application(
         providers=(create_openai_chat_integration(base_url="https://provider.test/v1"),),
-        checker=StaticChecker(),
         http_transport_factory=lambda: httpx.MockTransport(respond),
     )
 
@@ -137,7 +138,24 @@ async def test_shared_client_does_not_persist_or_replay_caller_cookies():
     assert sorted(observed) == [("synthetic-a", None), ("synthetic-b", "session=caller-b"), ("synthetic-c", None)]
 
 
-def test_application_creates_one_shared_transport_per_lifespan_and_closes_it_once():
+def create_test_application(tmp_path, monkeypatch, *, checker, **kwargs):
+    config_path = tmp_path / "rails"
+    config_path.mkdir(exist_ok=True)
+    (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
+
+    async def get_checker(_repository, config_id):
+        assert config_id == "test"
+        return checker
+
+    monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
+    return create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        rails_configs=(ConfigEntry("test", config_path),),
+        **kwargs,
+    )
+
+
+def test_application_creates_one_shared_transport_per_lifespan_and_closes_it_once(tmp_path, monkeypatch):
     created = []
 
     def create_transport():
@@ -145,8 +163,9 @@ def test_application_creates_one_shared_transport_per_lifespan_and_closes_it_onc
         created.append(transport)
         return transport
 
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=create_transport,
     )
@@ -165,15 +184,16 @@ def test_application_creates_one_shared_transport_per_lifespan_and_closes_it_onc
     assert created[0] is not created[1]
 
 
-def test_startup_closes_transport_if_runtime_construction_fails(monkeypatch):
+def test_startup_closes_transport_if_runtime_construction_fails(tmp_path, monkeypatch):
     transport = TrackingTransport()
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: transport,
     )
     monkeypatch.setattr(
-        _application.ProxyRuntime,
+        _application.ServerRuntime,
         "create",
         MagicMock(side_effect=RuntimeError("runtime construction failed")),
     )
@@ -201,10 +221,9 @@ async def test_startup_rollback_is_bounded_and_preserves_construction_failure(mo
     transport = FailingCloseTransport()
     application = create_proxy_application(
         providers=(create_openai_chat_integration(),),
-        checker=StaticChecker(),
         http_transport_factory=lambda: transport,
     )
-    monkeypatch.setattr(_application.ProxyRuntime, "create", MagicMock(side_effect=ValueError("runtime failed")))
+    monkeypatch.setattr(_application.ServerRuntime, "create", MagicMock(side_effect=ValueError("runtime failed")))
     with pytest.raises(ValueError, match="runtime failed"):
         async with application.router.lifespan_context(application):
             pytest.fail("startup must not complete")
@@ -213,9 +232,10 @@ async def test_startup_rollback_is_bounded_and_preserves_construction_failure(mo
     assert "private rollback detail" not in caplog.text
 
 
-def test_transport_factory_must_return_an_async_transport():
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+def test_transport_factory_must_return_an_async_transport(tmp_path, monkeypatch):
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=MagicMock(return_value=None),
     )
@@ -225,11 +245,33 @@ def test_transport_factory_must_return_an_async_transport():
             pass
 
 
-def test_guarded_dispatch_occurs_between_input_and_output_inspection():
+def test_http_transport_closes_when_checker_repository_shutdown_fails(tmp_path, monkeypatch):
+    transport = TrackingTransport()
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
+        checker=StaticChecker(),
+        http_transport_factory=lambda: transport,
+    )
+
+    async def fail_close(_repository):
+        raise RuntimeError("checker shutdown failed")
+
+    monkeypatch.setattr(GuardrailsRepository, "close", fail_close)
+
+    with pytest.raises(RuntimeError, match="checker shutdown failed"):
+        with TestClient(application):
+            pass
+
+    assert transport.close_calls == 1
+
+
+def test_guarded_dispatch_occurs_between_input_and_output_inspection(tmp_path, monkeypatch):
     events = []
     transport = TrackingTransport(events)
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(inspect_input=True, inspect_output=True, events=events),
         http_transport_factory=lambda: transport,
     )
@@ -241,13 +283,14 @@ def test_guarded_dispatch_occurs_between_input_and_output_inspection():
     assert events == ["input", "dispatch", "output"]
 
 
-def test_only_guarded_output_inspection_forces_identity_encoding():
+def test_only_guarded_output_inspection_forces_identity_encoding(tmp_path, monkeypatch):
     transports = []
     for inspect_output in (False, True):
         transport = TrackingTransport()
         transports.append(transport)
-        application = create_proxy_application(
-            providers=(create_openai_chat_integration(),),
+        application = create_test_application(
+            tmp_path,
+            monkeypatch,
             checker=StaticChecker(inspect_output=inspect_output),
             http_transport_factory=lambda transport=transport: transport,
         )
@@ -263,10 +306,11 @@ def test_only_guarded_output_inspection_forces_identity_encoding():
     assert transports[1].requests[0].headers["accept-encoding"] == "identity"
 
 
-def test_passthrough_streams_bodies_outside_guarded_limits_and_preserves_representation_headers():
+def test_passthrough_streams_bodies_outside_guarded_limits_and_preserves_representation_headers(tmp_path, monkeypatch):
     transport = TrackingTransport()
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: transport,
         max_request_body_bytes=1,
@@ -296,10 +340,11 @@ def test_passthrough_streams_bodies_outside_guarded_limits_and_preserves_represe
 
 
 @pytest.mark.parametrize("length", ["invalid", "-1", "3, 3"])
-def test_passthrough_renders_invalid_content_length_without_dispatch(length):
+def test_passthrough_renders_invalid_content_length_without_dispatch(tmp_path, monkeypatch, length):
     transport = TrackingTransport()
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: transport,
     )
@@ -313,7 +358,7 @@ def test_passthrough_renders_invalid_content_length_without_dispatch(length):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("nested", [False, True])
 @pytest.mark.parametrize("outer_mount", ["", "/gateway"])
-async def test_local_routers_precede_provider_catchalls_and_reserve_paths(nested, outer_mount):
+async def test_local_routers_precede_provider_catchalls_and_reserve_paths(tmp_path, monkeypatch, nested, outer_mount):
     dependency_calls = []
 
     def observe():
@@ -331,8 +376,9 @@ async def test_local_routers_precede_provider_catchalls_and_reserve_paths(nested
         local = parent
     local_path = ("/internal" if nested else "") + "/ops/health"
     transport = TrackingTransport()
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         local_routers=(local,),
         http_transport_factory=lambda: transport,
@@ -361,9 +407,10 @@ async def test_local_routers_precede_provider_catchalls_and_reserve_paths(nested
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("maximum", [1, 2])
-async def test_transport_factory_pool_limits_apply_across_origins_until_stream_closes(monkeypatch, maximum):
-    application = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+async def test_transport_factory_pool_limits_apply_across_origins_until_stream_closes(tmp_path, monkeypatch, maximum):
+    application = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: httpx.AsyncHTTPTransport(
             limits=httpx.Limits(max_connections=maximum, max_keepalive_connections=1),
@@ -390,16 +437,18 @@ async def test_transport_factory_pool_limits_apply_across_origins_until_stream_c
     assert client.is_closed
 
 
-def test_application_instances_own_independent_runtime_resources():
+def test_application_instances_own_independent_runtime_resources(tmp_path, monkeypatch):
     first_transport = TrackingTransport()
     second_transport = TrackingTransport()
-    first = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    first = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: first_transport,
     )
-    second = create_proxy_application(
-        providers=(create_openai_chat_integration(),),
+    second = create_test_application(
+        tmp_path,
+        monkeypatch,
         checker=StaticChecker(),
         http_transport_factory=lambda: second_transport,
     )
@@ -419,7 +468,7 @@ def test_application_instances_own_independent_runtime_resources():
     assert first_transport.close_calls == 1
 
 
-def test_all_provider_instances_share_the_application_transport():
+def test_all_provider_instances_share_the_application_transport(tmp_path, monkeypatch):
     transport = TrackingTransport()
     providers = (
         create_openai_chat_integration(
@@ -432,9 +481,17 @@ def test_all_provider_instances_share_the_application_transport():
             mount_path="/providers/second",
         ),
     )
+    config_path = tmp_path / "rails"
+    config_path.mkdir()
+    (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
+
+    async def get_checker(_repository, _config_id):
+        return StaticChecker()
+
+    monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
     application = create_proxy_application(
         providers=providers,
-        checker=StaticChecker(),
+        rails_configs=(ConfigEntry("test", config_path),),
         http_transport_factory=lambda: transport,
     )
 
@@ -449,7 +506,7 @@ def test_all_provider_instances_share_the_application_transport():
     assert transport.close_calls == 1
 
 
-def test_application_can_dispatch_through_an_in_process_asgi_component():
+def test_application_can_dispatch_through_an_in_process_asgi_component(tmp_path, monkeypatch):
     forwarding = FastAPI()
     received = []
 
@@ -469,9 +526,17 @@ def test_application_can_dispatch_through_an_in_process_asgi_component():
         create_openai_chat_integration(base_url="http://forwarding.internal/v1"),
         control_headers=frozenset({"x-routing-secret"}),
     )
+    config_path = tmp_path / "rails"
+    config_path.mkdir()
+    (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
+
+    async def get_checker(_repository, _config_id):
+        return StaticChecker()
+
+    monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
     application = create_proxy_application(
         providers=(provider,),
-        checker=StaticChecker(),
+        rails_configs=(ConfigEntry("test", config_path),),
         http_transport_factory=lambda: httpx.ASGITransport(app=forwarding),
     )
 
