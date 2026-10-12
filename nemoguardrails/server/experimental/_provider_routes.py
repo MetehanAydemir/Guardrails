@@ -15,14 +15,13 @@
 
 """Construct FastAPI routes from declarative provider integrations."""
 
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from urllib.parse import quote
 
-import httpx
 from fastapi import APIRouter, FastAPI
 
-from nemoguardrails.server.experimental._content_checker import ContentChecker
+from nemoguardrails.server.experimental._content_checker import ContentChecker, validate_content_checker
 from nemoguardrails.server.experimental._guarded_proxy import create_guarded_http_operation
 from nemoguardrails.server.experimental._http_kernel import (
     DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -30,8 +29,13 @@ from nemoguardrails.server.experimental._http_kernel import (
     create_http_proxy_router,
 )
 from nemoguardrails.server.experimental._http_paths import HttpRouteOwnership, _route_shape
-from nemoguardrails.server.experimental._provider_transport import DEFAULT_OUTBOUND_TIMEOUT, ProviderTransport
+from nemoguardrails.server.experimental._provider_transport import (
+    DEFAULT_OUTBOUND_TIMEOUT,
+    HTTPClientResolver,
+    ProviderTransport,
+)
 from nemoguardrails.server.experimental.provider.integration import ProviderIntegration
+from nemoguardrails.server.experimental.routers.passthrough import create_passthrough_router
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,13 +99,13 @@ def _validate_provider_plans(plans: Sequence[ProviderRoutePlan]) -> None:
                 )
 
 
-def _registered_http_routes(router: APIRouter | FastAPI) -> dict[str, set[str]]:
+def _registered_http_routes(router: APIRouter | FastAPI, path_prefix: str = "") -> dict[str, set[str]]:
     reserved: dict[str, set[str]] = {}
     for route in router.routes:
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None)
         if path is not None and methods is not None:
-            reserved.setdefault(path, set()).update(methods)
+            reserved.setdefault(f"{path_prefix}{path}", set()).update(methods)
     return reserved
 
 
@@ -109,22 +113,25 @@ def create_provider_router(
     plan: ProviderRoutePlan,
     *,
     checker: ContentChecker,
-    reserved_routes: Mapping[str, Collection[str]],
     max_request_body_bytes: int,
     max_response_body_bytes: int,
 ) -> APIRouter:
-    """Construct one provider's guarded routes and checked pass-through routing.
-
-    Alternate paths reaching a guarded upstream destination are rejected before
-    forwarding; unrelated provider operations retain transparent forwarding.
-    """
+    """Construct the guarded routes declared by one provider."""
 
     provider = plan.provider
+    checker_policy = validate_content_checker(checker).policy
+
+    async def dispatch(request):
+        return await plan.dispatcher.dispatch(request, require_identity_response=checker_policy.inspect_output)
+
+    async def stream_dispatch(request):
+        return await plan.dispatcher.stream_dispatch(request, require_identity_response=checker_policy.inspect_output)
+
     operations = tuple(
         create_guarded_http_operation(
             endpoint,
             provider.errors,
-            stream_dispatch=plan.dispatcher.stream_dispatch if endpoint.stream is not None else None,
+            stream_dispatch=stream_dispatch if endpoint.stream is not None else None,
             max_stream_event_bytes=max_response_body_bytes,
             max_pending_stream_bytes=max_response_body_bytes,
         )
@@ -136,12 +143,12 @@ def create_provider_router(
     return create_http_proxy_router(
         operations=operations,
         checker=checker,
-        dispatch=plan.dispatcher.dispatch,
+        dispatch=dispatch,
         render_outcome=provider.errors.renderer,
-        reserved_routes=reserved_routes,
         operation_ids=operation_ids,
         guarded_path_prefix=plan.mount_path,
         route_ownership=plan.ownership,
+        include_passthrough=False,
         max_request_body_bytes=max_request_body_bytes,
         max_response_body_bytes=max_response_body_bytes,
     )
@@ -152,7 +159,7 @@ def include_provider_routes(
     providers: Sequence[ProviderIntegration],
     *,
     checker: ContentChecker,
-    http_client: httpx.AsyncClient,
+    http_client: HTTPClientResolver,
     path_prefix: str = "",
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES,
@@ -174,9 +181,8 @@ def include_provider_routes(
     for provider in providers:
         provider_prefix = f"{normalized_prefix}{provider.upstream.mount_path}"
         dispatcher = ProviderTransport(
+            replace(provider.upstream, mount_path=provider_prefix),
             http_client,
-            base_url=provider.upstream.base_url,
-            mount_path=provider_prefix,
             control_headers=provider.control_headers,
             max_response_body_bytes=max_response_body_bytes,
             timeout=timeout,
@@ -184,18 +190,34 @@ def include_provider_routes(
         plans.append(ProviderRoutePlan.create(provider, provider_prefix, dispatcher))
 
     _validate_provider_plans(plans)
-    routers = [
+    guarded_routers = [
         (
             plan,
             create_provider_router(
                 plan,
                 checker=checker,
-                reserved_routes=reserved_routes,
                 max_request_body_bytes=max_request_body_bytes,
                 max_response_body_bytes=max_response_body_bytes,
             ),
         )
         for plan in sorted(plans, key=lambda plan: len(plan.mount_path), reverse=True)
     ]
-    for plan, router in routers:
+    for plan, router in guarded_routers:
+        for path, methods in _registered_http_routes(router, plan.mount_path).items():
+            reserved_routes.setdefault(path, set()).update(methods)
+    passthrough_routers = [
+        (
+            plan,
+            create_passthrough_router(
+                transport=plan.dispatcher,
+                errors=plan.provider.errors,
+                reserved_routes=reserved_routes,
+                guarded_operation_paths=plan.ownership.local_paths,
+            ),
+        )
+        for plan in sorted(plans, key=lambda plan: len(plan.mount_path), reverse=True)
+    ]
+    for plan, router in guarded_routers:
         application.include_router(router, prefix=plan.mount_path, tags=[plan.provider.display_name])
+    for plan, router in passthrough_routers:
+        application.include_router(router, prefix=plan.mount_path)

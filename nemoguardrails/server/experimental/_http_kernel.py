@@ -508,6 +508,7 @@ def create_http_proxy_router(
     operation_ids: Mapping[str, str] | None = None,
     guarded_path_prefix: str = "",
     route_ownership: HttpRouteOwnership | None = None,
+    include_passthrough: bool = True,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
     max_response_body_bytes: int = DEFAULT_MAX_RESPONSE_BODY_BYTES,
 ) -> APIRouter:
@@ -562,7 +563,6 @@ def create_http_proxy_router(
             openapi_extra=declaration.openapi_extra,
         )
 
-    @router.api_route("/{path:path}", methods=list(HTTP_METHODS), include_in_schema=False)
     async def passthrough(request: Request, path: str) -> Response:
         """Forward provider-owned routes without content checking."""
 
@@ -574,11 +574,12 @@ def create_http_proxy_router(
             )
         ownership_path = get_route_path(request.scope) if normalized_guarded_prefix else f"/{path}"
         candidates = _route_path_candidates(ownership_path)
+        reserved_candidates = candidates | _route_path_candidates(get_route_path(request.scope))
         reserved_methods = next(
             (
                 methods
                 for path_regex, methods in reserved_matchers
-                if any(path_regex.fullmatch(candidate) is not None for candidate in candidates)
+                if any(path_regex.fullmatch(candidate) is not None for candidate in reserved_candidates)
             ),
             None,
         )
@@ -625,5 +626,13 @@ def create_http_proxy_router(
                 request.method,
             )
         return _render_response(response, request.method)
+
+    if include_passthrough:
+        router.add_api_route(
+            "/{path:path}",
+            passthrough,
+            methods=list(HTTP_METHODS),
+            include_in_schema=False,
+        )
 
     return router
