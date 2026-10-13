@@ -105,6 +105,8 @@ class ServerRuntime:
         return await self.content_checkers.get(config_id)
 
     async def close(self) -> None:
+        """Attempt checker and HTTP cleanup independently during shutdown."""
+
         try:
             await self.content_checkers.close()
         finally:

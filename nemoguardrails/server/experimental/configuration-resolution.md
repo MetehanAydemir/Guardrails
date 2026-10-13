@@ -61,7 +61,7 @@ The resolver receives a `ConfigContext` containing:
 | Value | Meaning |
 | --- | --- |
 | `request` | The Starlette request for the guarded provider call. |
-| `provider_type` | The provider protocol or integration type. |
+| `provider_type` | The provider protocol family; instances may select different reviewed dialects. |
 | `provider_instance_id` | The deployment-local provider instance. |
 | `operation_name` | The guarded operation, such as `chat_completions.create`. |
 
@@ -99,8 +99,24 @@ application shutdown. Concurrent requests for one ID share one startup task;
 different IDs receive independent cores. Startup failures are cached and
 remain fail-closed.
 
+Configuration file loading and parsing run in a worker thread, so filesystem
+work does not block active response streams. Engine construction and startup
+remain on the application event loop; this is not a guarantee that arbitrary
+engine constructors are non-blocking. Cancelling one waiting request does not
+cancel the shared startup task.
+
 The application runtime closes the checker repository and the shared outbound
-HTTP client. HTTP cleanup still runs if checker shutdown fails.
+HTTP client. Shutdown rejects new checker lookups, cancels unfinished startup,
+and independently attempts every loaded checker's cleanup. Each checker gets a
+shielded five-second cooperative budget; timeouts and ordinary failures are
+logged without replacing the application's primary error. Incomplete checker
+cleanup remains retryable. HTTP client cleanup still runs and has its own
+shielded five-second budget.
+
+These budgets cannot forcibly stop blocking or cancellation-suppressing engine
+code. Cancelling file parsing also cannot forcibly stop the worker thread;
+the cancelled load will not proceed to construct an engine. A logged timeout
+does not establish that all resources were released.
 
 The fixed catalog is an explicit allow-list and resource-ownership boundary.
 It does not define hot reload, cache invalidation, concurrent replacement, or a
