@@ -20,8 +20,6 @@ from collections.abc import AsyncIterator, Callable, Collection
 from typing import cast
 
 import httpx
-from fastapi import Request
-from starlette.responses import Response
 
 from nemoguardrails.server.experimental._http_kernel import (
     DEFAULT_MAX_RESPONSE_BODY_BYTES,
@@ -31,11 +29,10 @@ from nemoguardrails.server.experimental._http_kernel import (
     HttpHeaders,
     ResponseBodyTooLarge,
     _end_to_end_headers,
-    _render_response,
 )
 from nemoguardrails.server.experimental._http_paths import _strip_mount_prefix
 from nemoguardrails.server.experimental._httpx_response import _HttpxResponseBody
-from nemoguardrails.server.experimental._streaming_http import StreamingHttpResponse, _ClosingStreamingResponse
+from nemoguardrails.server.experimental._streaming_http import StreamingHttpResponse
 from nemoguardrails.server.experimental.provider.integration import UpstreamSettings
 
 DEFAULT_OUTBOUND_TIMEOUT = 30.0
@@ -181,7 +178,7 @@ class ProviderTransport:
             upstream_path += b"?" + query
         return self._base_url.copy_with(raw_path=upstream_path)
 
-    async def _open(
+    async def open(
         self,
         *,
         method: str,
@@ -192,11 +189,13 @@ class ProviderTransport:
         body: bytes | AsyncIterator[bytes],
         require_identity_response: bool,
     ) -> httpx.Response:
-        """Send caller bytes and headers without inherited headers, cookies, or auth.
+        """Open an unbuffered HTTPX response and transfer ownership to the caller.
 
-        Redirects are disabled. Expected HTTPX request failures become
-        HttpDispatchFailed. The returned response remains open and its cleanup
-        belongs to the receiving caller.
+        The caller must close the response even when it never consumes the
+        body. Guarded dispatch and the pass-through router attach the shared
+        response-body owner immediately, before their next suspension point.
+        Requests inherit no client headers, cookies, or authentication;
+        redirects are disabled. Expected HTTPX failures become HttpDispatchFailed.
         """
 
         client = self._client()
@@ -222,7 +221,7 @@ class ProviderTransport:
         *,
         require_identity_response: bool,
     ) -> httpx.Response:
-        return await self._open(
+        return await self.open(
             method=request.method,
             path=request.path,
             raw_path=request.raw_path,
@@ -290,39 +289,3 @@ class ProviderTransport:
                 await body.aclose()
                 raise
         return await self._buffer(response)
-
-    async def passthrough(self, request: Request) -> Response:
-        """Stream an unrelated provider operation without guarded body limits."""
-
-        raw_path = request.scope.get("raw_path")
-        if not isinstance(raw_path, bytes):
-            raw_path = httpx.URL(path=request.url.path).raw_path
-        query = request.scope.get("query_string", b"")
-        if not isinstance(query, bytes):
-            raise TypeError("The downstream query string must be bytes.")
-        response = await self._open(
-            method=request.method,
-            path=request.url.path,
-            raw_path=raw_path,
-            query=query,
-            headers=tuple(request.scope.get("headers", ())),
-            body=request.stream(),
-            require_identity_response=False,
-        )
-        body = _HttpxResponseBody(response)
-        try:
-            if request.method == "HEAD" or response.status_code < 200 or response.status_code in {204, 205, 304}:
-                await body.aclose()
-                return _render_response(
-                    BufferedHttpResponse(response.status_code, _response_headers(response.headers), b""), request.method
-                )
-            downstream = _ClosingStreamingResponse(body, body, status_code=response.status_code)
-            downstream.raw_headers = [
-                (name, value)
-                for name, value in _response_headers(response.headers)
-                if name.lower() != b"content-length"
-            ]
-            return downstream
-        except BaseException:
-            await body.aclose()
-            raise

@@ -17,11 +17,14 @@
 
 from collections.abc import Collection, Mapping
 
+import httpx
 from fastapi import APIRouter, Request
+from starlette.responses import Response
 from starlette.routing import compile_path
 
 from nemoguardrails.server.experimental._http_kernel import (
     HTTP_METHODS,
+    BufferedHttpResponse,
     GuardedOperationPath,
     HttpDispatchFailed,
     HttpFailureKind,
@@ -30,6 +33,7 @@ from nemoguardrails.server.experimental._http_kernel import (
     HttpRouteRejectionKind,
     InvalidRequestPath,
     _normalized_route_path,
+    _render_response,
     _route_path_candidates,
     _validate_request_path,
     _validate_reserved_routes,
@@ -37,8 +41,45 @@ from nemoguardrails.server.experimental._http_kernel import (
 from nemoguardrails.server.experimental._http_kernel import (
     _render_failure as _render_http_failure,
 )
-from nemoguardrails.server.experimental._provider_transport import ProviderTransport
+from nemoguardrails.server.experimental._httpx_response import _HttpxResponseBody
+from nemoguardrails.server.experimental._provider_transport import ProviderTransport, _response_headers
+from nemoguardrails.server.experimental._streaming_http import _ClosingStreamingResponse
 from nemoguardrails.server.experimental.provider.errors import ProviderErrorMapping
+
+
+async def _passthrough_response(request: Request, transport: ProviderTransport) -> Response:
+    """Adapt an unbuffered provider exchange to ASGI with response-owned cleanup."""
+
+    raw_path = request.scope.get("raw_path")
+    if not isinstance(raw_path, bytes):
+        raw_path = httpx.URL(path=request.url.path).raw_path
+    query = request.scope.get("query_string", b"")
+    if not isinstance(query, bytes):
+        raise TypeError("The downstream query string must be bytes.")
+    response = await transport.open(
+        method=request.method,
+        path=request.url.path,
+        raw_path=raw_path,
+        query=query,
+        headers=tuple(request.scope.get("headers", ())),
+        body=request.stream(),
+        require_identity_response=False,
+    )
+    body = _HttpxResponseBody(response)
+    try:
+        if request.method == "HEAD" or response.status_code < 200 or response.status_code in {204, 205, 304}:
+            await body.aclose()
+            return _render_response(
+                BufferedHttpResponse(response.status_code, _response_headers(response.headers), b""), request.method
+            )
+        downstream = _ClosingStreamingResponse(body, body, status_code=response.status_code)
+        downstream.raw_headers = [
+            (name, value) for name, value in _response_headers(response.headers) if name.lower() != b"content-length"
+        ]
+        return downstream
+    except BaseException:
+        await body.aclose()
+        raise
 
 
 def create_passthrough_router(
@@ -114,7 +155,7 @@ def create_passthrough_router(
                     request.method,
                 )
         try:
-            return await transport.passthrough(request)
+            return await _passthrough_response(request, transport)
         except HttpDispatchFailed as failure:
             return _render_http_failure(
                 HttpOperationFailed(HttpFailureKind.UPSTREAM_REQUEST_FAILED, failure), errors.renderer, request.method

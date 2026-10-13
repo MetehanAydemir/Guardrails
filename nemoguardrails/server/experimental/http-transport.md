@@ -37,11 +37,26 @@ transport while propagating the error.
 | `ProviderIntegration` | Declares guarded endpoints, projections, renderers, an upstream, and provider-specific proxy control headers. |
 | `UpstreamSettings` | Defines one provider instance's local mount and initial base URL. |
 | `ProviderTransport` | Builds provider requests, applies guarded representation and response-buffer rules, and relays buffered or streaming responses. |
+| Pass-through router | Adapts unbuffered HTTP exchanges to ASGI responses and owns cleanup through disconnect or completion. |
 | HTTPX transport | Performs or replaces the final HTTPX dispatch operation. |
 
 The provider transport strips hop-by-hop headers and the integration's declared
 `control_headers` before requests reach the upstream. Provider authentication
 and API-version headers are not control headers and continue upstream normally.
+
+The shared client pools connections, not caller sessions. It does not persist
+upstream cookies, and outbound requests do not inherit client-level cookies,
+default headers, or authentication. Explicit caller `Cookie` and upstream
+`Set-Cookie` headers still pass through normally. Trusted credential injection
+belongs in the application transport, not in shared client defaults. Expected
+network failures before response handoff use the provider-native error mapping;
+cancellation and programming errors are not rewritten as network failures.
+
+`provider_type` identifies a protocol family. Each provider instance explicitly
+selects its own reviewed endpoints, so strict OpenAI and the LiteLLM dialect can
+coexist on different mounts. `create_openai_chat_integration(endpoint=...)`
+selects a dialect without changing other instances. Buffered-only endpoints do
+not receive streaming bindings and reject streaming requests.
 
 The configured request and response body limits apply to guarded traffic whose
 JSON or SSE representation must be inspected. Pass-through request and response

@@ -23,6 +23,7 @@ from starlette.requests import Request
 from nemoguardrails.server.experimental import _stream_cleanup
 from nemoguardrails.server.experimental._provider_transport import ProviderTransport
 from nemoguardrails.server.experimental.provider.integration import UpstreamSettings
+from nemoguardrails.server.experimental.routers.passthrough import _passthrough_response
 from tests.server.experimental.test_httpx_response_cleanup import CheckpointStream
 
 
@@ -54,7 +55,7 @@ async def passthrough_response(stream):
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), trust_env=False) as client:
         transport = ProviderTransport(UpstreamSettings("https://offline.test"), client, max_response_body_bytes=1)
         try:
-            yield await transport.passthrough(Request(request_scope(), receive_request))
+            yield await _passthrough_response(Request(request_scope(), receive_request), transport)
         finally:
             stream.close_mode = "checkpoint"
             await stream.aclose()
@@ -123,5 +124,5 @@ async def test_bodyless_passthrough_closes_under_cancellation(status_code):
         with anyio.CancelScope() as scope:
             cancel_scope = scope
             transport = ProviderTransport(UpstreamSettings("https://offline.test"), client)
-            await transport.passthrough(Request(request_scope(), receive_request))
+            await _passthrough_response(Request(request_scope(), receive_request), transport)
         assert stream.close_completed

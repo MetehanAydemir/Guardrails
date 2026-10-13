@@ -13,6 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
 from dataclasses import replace
 from unittest.mock import MagicMock
 
@@ -100,6 +101,39 @@ def chat_request(**updates):
     }
     payload.update(updates)
     return payload
+
+
+@pytest.mark.asyncio
+async def test_shared_client_does_not_persist_or_replay_caller_cookies():
+    observed = []
+
+    async def respond(request):
+        observed.append((request.headers["authorization"], request.headers.get("cookie")))
+        return httpx.Response(200, headers={"set-cookie": "session=upstream; Path=/"}, stream=StaticStream([b"ok"]))
+
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(base_url="https://provider.test/v1"),),
+        checker=StaticChecker(),
+        http_transport_factory=lambda: httpx.MockTransport(respond),
+    )
+
+    async def caller(identity, cookie=None):
+        headers = {"authorization": identity}
+        if cookie is not None:
+            headers["cookie"] = cookie
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application), base_url="http://proxy.test"
+        ) as client:
+            response = await client.get("/v1/models", headers=headers)
+            assert response.status_code == 200
+            assert response.headers["set-cookie"] == "session=upstream; Path=/"
+
+    async with application.router.lifespan_context(application):
+        await caller("synthetic-a")
+        assert not get_runtime(application).http_client.cookies
+        await asyncio.gather(caller("synthetic-b", "session=caller-b"), caller("synthetic-c"))
+        assert not get_runtime(application).http_client.cookies
+    assert sorted(observed) == [("synthetic-a", None), ("synthetic-b", "session=caller-b"), ("synthetic-c", None)]
 
 
 def test_application_creates_one_shared_transport_per_lifespan_and_closes_it_once():

@@ -16,9 +16,18 @@
 """Own application-lifespan resources for the private provider proxy."""
 
 from dataclasses import dataclass
+from http.cookiejar import Cookie, CookieJar, DefaultCookiePolicy
+from typing import Any
 
 import httpx
 from fastapi import FastAPI
+
+
+class _NoCookiePersistence(DefaultCookiePolicy):
+    """Keep pooled proxy connections without retaining an upstream session."""
+
+    def set_ok(self, cookie: Cookie, request: Any) -> bool:
+        return False
 
 
 @dataclass(slots=True)
@@ -38,6 +47,7 @@ class ProxyRuntime:
                 follow_redirects=False,
                 trust_env=False,
                 transport=http_transport,
+                cookies=CookieJar(policy=_NoCookiePersistence()),
             )
         )
 
