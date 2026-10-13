@@ -22,7 +22,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
-from nemoguardrails.server.experimental import _application
+from nemoguardrails.server.experimental import _application, _runtime
 from nemoguardrails.server.experimental._application import create_proxy_application
 from nemoguardrails.server.experimental._content_checker import (
     ContentAllowed,
@@ -183,6 +183,33 @@ def test_startup_closes_transport_if_runtime_construction_fails(monkeypatch):
 
     assert transport.close_calls == 1
     assert not hasattr(application.state, "experimental_proxy_runtime")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["hang", "raise"])
+async def test_startup_rollback_is_bounded_and_preserves_construction_failure(monkeypatch, caplog, failure):
+    monkeypatch.setattr(_runtime, "_HTTP_SHUTDOWN_TIMEOUT_SECONDS", 0.01)
+
+    class FailingCloseTransport(TrackingTransport):
+        async def aclose(self):
+            self.close_calls += 1
+            if failure == "hang":
+                await asyncio.Event().wait()
+            raise RuntimeError("private rollback detail")
+
+    transport = FailingCloseTransport()
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        checker=StaticChecker(),
+        http_transport_factory=lambda: transport,
+    )
+    monkeypatch.setattr(_application.ProxyRuntime, "create", MagicMock(side_effect=ValueError("runtime failed")))
+    with pytest.raises(ValueError, match="runtime failed"):
+        async with application.router.lifespan_context(application):
+            pytest.fail("startup must not complete")
+    assert transport.close_calls == 1
+    assert "HTTP client cleanup" in caplog.text
+    assert "private rollback detail" not in caplog.text
 
 
 def test_transport_factory_must_return_an_async_transport():

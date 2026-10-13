@@ -27,7 +27,7 @@ from nemoguardrails.server.experimental._http_kernel import (
     DEFAULT_MAX_RESPONSE_BODY_BYTES,
 )
 from nemoguardrails.server.experimental._provider_routes import include_provider_routes
-from nemoguardrails.server.experimental._runtime import ProxyRuntime, get_runtime
+from nemoguardrails.server.experimental._runtime import ProxyRuntime, _close_http_resource, get_runtime
 from nemoguardrails.server.experimental.provider.integration import ProviderIntegration
 
 HttpTransportFactory = Callable[[], httpx.AsyncBaseTransport]
@@ -43,7 +43,7 @@ async def _lifespan(application: FastAPI):
         runtime = ProxyRuntime.create(http_transport=transport)
     except BaseException:
         if transport is not None:
-            await transport.aclose()
+            await _close_http_resource(transport)
         raise
     application.state.experimental_proxy_runtime = runtime
     try:

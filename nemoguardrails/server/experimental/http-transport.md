@@ -30,6 +30,11 @@ the client and transport during shutdown. If startup fails after transport
 creation but before runtime ownership succeeds, the lifespan closes the
 transport while propagating the error.
 
+HTTP client shutdown and startup rollback use a shielded five-second
+cooperative cleanup budget. Timeouts and ordinary close failures are logged
+without masking the original failure. Blocking or cancellation-suppressing
+custom transports cannot be forcibly stopped by this budget.
+
 ## Position in the request flow
 
 | Component | Responsibility |

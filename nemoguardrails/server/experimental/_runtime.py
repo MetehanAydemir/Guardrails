@@ -15,12 +15,29 @@
 
 """Own application-lifespan resources for the private provider proxy."""
 
+import logging
 from dataclasses import dataclass
 from http.cookiejar import Cookie, CookieJar, DefaultCookiePolicy
 from typing import Any
 
+import anyio
 import httpx
 from fastapi import FastAPI
+
+log = logging.getLogger(__name__)
+_HTTP_SHUTDOWN_TIMEOUT_SECONDS = 5.0
+
+
+async def _close_http_resource(resource: httpx.AsyncClient | httpx.AsyncBaseTransport) -> None:
+    """Bound cooperative HTTP cleanup without replacing a primary failure."""
+
+    try:
+        with anyio.move_on_after(_HTTP_SHUTDOWN_TIMEOUT_SECONDS, shield=True) as scope:
+            await resource.aclose()
+        if scope.cancelled_caught:
+            log.warning("HTTP client cleanup timed out; resources may remain open.")
+    except Exception:
+        log.warning("HTTP client cleanup failed; resources may remain open.")
 
 
 class _NoCookiePersistence(DefaultCookiePolicy):
@@ -52,7 +69,7 @@ class ProxyRuntime:
         )
 
     async def close(self) -> None:
-        await self.http_client.aclose()
+        await _close_http_resource(self.http_client)
 
 
 def get_runtime(application: FastAPI) -> ProxyRuntime:
