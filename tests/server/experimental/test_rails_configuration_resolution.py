@@ -90,7 +90,7 @@ def chat_request():
 def test_trusted_resolver_receives_request_and_provider_context(tmp_path, monkeypatch):
     contexts = []
     resolved_checker = checker()
-    get_checker = AsyncMock(return_value=resolved_checker)
+    get_checker = MagicMock(return_value=resolved_checker)
     monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
 
     async def resolve_config(context):
@@ -123,7 +123,7 @@ def test_trusted_resolver_receives_request_and_provider_context(tmp_path, monkey
     assert contexts[0].provider_instance_id == "production"
     assert contexts[0].operation_name == "chat_completions.create"
     assert contexts[0].request.state.tenant == "tenant-a"
-    get_checker.assert_awaited_once_with("tenant-policy")
+    get_checker.assert_called_once_with("tenant-policy")
     assert transport.requests[0].headers["x-nemo-guardrails-config"] == "ignored-by-guardrails"
 
 
@@ -147,7 +147,7 @@ def test_unknown_resolved_config_fails_closed_before_upstream(tmp_path):
 def test_unsupported_resolved_checker_configuration_fails_before_upstream(tmp_path, monkeypatch):
     resolved_checker = checker()
     resolved_checker.inspection_policy.side_effect = UnsupportedContentCheckerConfiguration("retrieval rails")
-    monkeypatch.setattr(GuardrailsRepository, "get", AsyncMock(return_value=resolved_checker))
+    monkeypatch.setattr(GuardrailsRepository, "get", MagicMock(return_value=resolved_checker))
     transport = RecordingTransport()
     application = create_proxy_application(
         providers=(create_openai_chat_integration(),),
@@ -173,7 +173,7 @@ def test_resolved_checker_policy_controls_each_request_representation(tmp_path, 
         "passthrough": checker(inspect_output=False),
     }
 
-    async def get_checker(_repository, config_id):
+    def get_checker(_repository, config_id):
         return checkers[config_id]
 
     monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
@@ -208,7 +208,7 @@ def test_resolved_checker_policy_controls_each_stream_request_representation(tmp
         "passthrough-stream": checker(inspect_output=False, streaming=True),
     }
 
-    async def get_checker(_repository, config_id):
+    def get_checker(_repository, config_id):
         return checkers[config_id]
 
     monkeypatch.setattr(GuardrailsRepository, "get", get_checker)

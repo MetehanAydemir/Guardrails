@@ -94,20 +94,32 @@ at application construction.
 ## Lifecycle
 
 Config entries are validated and fixed during application assembly. Guardrails
-cores are loaded lazily on first selection, cached by config ID, and closed at
-application shutdown. Concurrent requests for one ID share one startup task;
-different IDs receive independent cores. Startup failures are cached and
-remain fail-closed.
+cores for **every declared configuration** are initialized sequentially before
+the application becomes ready, including configurations the resolver might
+never select. Different IDs receive independent cores, even when their paths
+are identical. Requests perform a synchronous lookup of an already-started
+checker; they do not parse files, construct engines, or share startup tasks.
+
+If parsing, engine construction, or startup fails, the application does not
+accept traffic. Already-started checkers and the shared HTTP client are closed;
+the engine whose startup failed owns rollback of its incomplete initialization.
+Cancellation during startup follows the same rollback path. There is no
+partially ready catalog or request-time retry of a failed configuration. A new
+application lifespan constructs a fresh catalog.
+
+Preloading trades longer startup and resources for potentially unused configs
+for fail-fast initialization and predictable request latency. Resolver errors
+and operation-specific capability checks remain request-time concerns; loading
+a configuration does not prove it supports every endpoint or streaming mode.
 
 Configuration file loading and parsing run in a worker thread, so filesystem
-work does not block active response streams. Engine construction and startup
-remain on the application event loop; this is not a guarantee that arbitrary
-engine constructors are non-blocking. Cancelling one waiting request does not
-cancel the shared startup task.
+work does not block the event loop. Engine construction and startup remain on
+the application loop, before serving; arbitrary engine constructors are not
+assumed to be thread-safe or non-blocking.
 
 The application runtime closes the checker repository and the shared outbound
-HTTP client. Shutdown rejects new checker lookups, cancels unfinished startup,
-and independently attempts every loaded checker's cleanup. Each checker gets a
+HTTP client. Shutdown rejects new checker lookups and independently attempts
+every loaded checker's cleanup. Each checker gets a
 shielded five-second cooperative budget; timeouts and ordinary failures are
 logged without replacing the application's primary error. Incomplete checker
 cleanup remains retryable. HTTP client cleanup still runs and has its own

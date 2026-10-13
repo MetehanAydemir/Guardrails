@@ -20,9 +20,9 @@ application = create_proxy_application(
 
 The leading underscores are intentional while this stack is staged. This work
 restores the exploratory capability without committing to a public provider
-extension API. Trusted Rails configuration resolution replaces the single
-supplied checker in the next PR; it does not change transport ownership or
-routing semantics.
+extension API. Trusted Rails configuration resolution selects from the catalog
+preloaded before application readiness; it does not change transport ownership
+or routing semantics.
 
 When no factory is supplied, HTTPX uses its normal asynchronous network
 transport. When one is supplied, the application invokes it once per lifespan.
@@ -30,6 +30,9 @@ Every provider instance uses the resulting shared client. The runtime closes
 the client and transport during shutdown. If startup fails after transport
 creation but before runtime ownership succeeds, the lifespan closes the
 transport while propagating the error.
+
+If Rails preloading fails after runtime construction, the runtime closes both
+the already-started checkers and this shared HTTP client before startup fails.
 
 HTTP client shutdown and startup rollback use a shielded five-second
 cooperative cleanup budget. Timeouts and ordinary close failures are logged

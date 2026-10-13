@@ -143,7 +143,7 @@ def create_test_application(tmp_path, monkeypatch, *, checker, **kwargs):
     config_path.mkdir(exist_ok=True)
     (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
 
-    async def get_checker(_repository, config_id):
+    def get_checker(_repository, config_id):
         assert config_id == "test"
         return checker
 
@@ -485,7 +485,7 @@ def test_all_provider_instances_share_the_application_transport(tmp_path, monkey
     config_path.mkdir()
     (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
 
-    async def get_checker(_repository, _config_id):
+    def get_checker(_repository, _config_id):
         return StaticChecker()
 
     monkeypatch.setattr(GuardrailsRepository, "get", get_checker)
@@ -530,7 +530,7 @@ def test_application_can_dispatch_through_an_in_process_asgi_component(tmp_path,
     config_path.mkdir()
     (config_path / "config.yml").write_text("models: []\n", encoding="utf-8")
 
-    async def get_checker(_repository, _config_id):
+    def get_checker(_repository, _config_id):
         return StaticChecker()
 
     monkeypatch.setattr(GuardrailsRepository, "get", get_checker)

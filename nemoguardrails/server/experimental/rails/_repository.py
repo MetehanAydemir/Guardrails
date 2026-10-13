@@ -31,60 +31,67 @@ _SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 class GuardrailsRepository:
-    """Own one lazy startup task per trusted config, independently of callers.
+    """Preload the trusted catalog before serving and own its checkers.
 
     File parsing runs in a worker thread; engine construction and startup stay
-    on the application loop. Cancelling a request does not cancel shared startup.
-    Shutdown rejects new work, cancels pending startup, and gives each owner a
-    shielded, cooperative cleanup budget. Failed cleanup remains retryable.
+    on the application loop. Requests only look up already-started checkers.
+    Startup failure closes earlier checkers and prevents readiness. Shutdown
+    gives each owner a shielded, cooperative budget; failed cleanup is retryable.
     """
 
     def __init__(self, entries: Sequence[ConfigEntry]):
         resolved_entries = validate_config_entries(entries)
         self._config_paths = {entry.id: entry.config_path for entry in resolved_entries}
-        self._loads: dict[str, asyncio.Task[LegacyGuardrailsChecker]] = {}
+        self._checkers: dict[str, LegacyGuardrailsChecker] = {}
+        self._ready = False
         self._closed = False
-        self._close_lock = asyncio.Lock()
+        self._lifecycle_lock = asyncio.Lock()
 
-    async def _load(self, config_id: str) -> LegacyGuardrailsChecker:
-        config = await asyncio.to_thread(RailsConfig.from_path, str(self._config_paths[config_id]))
-        rails = Guardrails(config=config, require_iorails=True)
-        await rails.startup()
-        return LegacyGuardrailsChecker(rails)
+    async def startup(self) -> None:
+        """Initialize every declared config once, or roll back the whole catalog.
 
-    async def get(self, config_id: str) -> ContentChecker:
-        """Share startup and cached failures without transferring task ownership."""
+        Engines roll back their own incomplete startup. This repository owns
+        completed startups and closes them if any later load fails or startup
+        is cancelled. A failed repository is closed, not reusable.
+        """
+
+        try:
+            async with self._lifecycle_lock:
+                if self._closed:
+                    raise RuntimeError("The Guardrails repository is closed.")
+                if self._ready:
+                    return
+                for config_id, path in self._config_paths.items():
+                    config = await asyncio.to_thread(RailsConfig.from_path, str(path))
+                    rails = Guardrails(config=config, require_iorails=True)
+                    await rails.startup()
+                    self._checkers[config_id] = LegacyGuardrailsChecker(rails)
+                self._ready = True
+        except BaseException:
+            await self.close()
+            raise
+
+    def get(self, config_id: str) -> ContentChecker:
+        """Look up a preloaded checker without I/O or request-time initialization."""
 
         if self._closed:
             raise RuntimeError("The Guardrails repository is closed.")
-        if config_id not in self._config_paths:
+        if not self._ready:
+            raise RuntimeError("The Guardrails repository has not completed startup.")
+        if config_id not in self._checkers:
             raise ValueError(f"Unknown Rails config: {config_id}")
-        load = self._loads.get(config_id)
-        if load is None:
-            load = asyncio.create_task(self._load(config_id))
-            self._loads[config_id] = load
-        return await asyncio.shield(load)
+        return self._checkers[config_id]
 
-    async def _close_load(self, config_id: str, load: asyncio.Task[LegacyGuardrailsChecker]) -> None:
-        """Cancel unfinished startup or close its result without blocking peers."""
+    async def _close_checker(self, config_id: str, checker: LegacyGuardrailsChecker) -> None:
+        """Close one initialized checker without blocking its peers."""
 
         try:
             with anyio.move_on_after(_SHUTDOWN_TIMEOUT_SECONDS, shield=True) as scope:
-                if not load.done():
-                    load.cancel()
-                try:
-                    checker = await load
-                except asyncio.CancelledError:
-                    if not load.cancelled():
-                        raise
-                except Exception:
-                    pass
-                else:
-                    await checker.close()
+                await checker.close()
             if scope.cancelled_caught:
                 log.warning("Guardrails cleanup timed out; resources may remain open.")
             else:
-                self._loads.pop(config_id, None)
+                self._checkers.pop(config_id, None)
         except Exception:
             log.warning("Guardrails cleanup failed; resources may remain open.")
 
@@ -98,7 +105,7 @@ class GuardrailsRepository:
 
         self._closed = True
         with anyio.CancelScope(shield=True):
-            async with self._close_lock:
+            async with self._lifecycle_lock:
                 async with anyio.create_task_group() as group:
-                    for config_id, load in tuple(self._loads.items()):
-                        group.start_soon(self._close_load, config_id, load)
+                    for config_id, checker in tuple(self._checkers.items()):
+                        group.start_soon(self._close_checker, config_id, checker)

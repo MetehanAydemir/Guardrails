@@ -102,7 +102,7 @@ class ServerRuntime:
             config_id = await config_id
         if not isinstance(config_id, str) or not config_id:
             raise TypeError("The config resolver must return a non-empty config id.")
-        return await self.content_checkers.get(config_id)
+        return self.content_checkers.get(config_id)
 
     async def close(self) -> None:
         """Attempt checker and HTTP cleanup independently during shutdown."""

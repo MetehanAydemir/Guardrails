@@ -50,11 +50,16 @@ async def _lifespan(application: FastAPI):
         if transport is not None:
             await _close_http_resource(transport)
         raise
-    application.state.experimental_proxy_runtime = runtime
     try:
+        await runtime.content_checkers.startup()
+        application.state.experimental_proxy_runtime = runtime
         yield
     finally:
-        await runtime.close()
+        try:
+            await runtime.close()
+        finally:
+            if getattr(application.state, "experimental_proxy_runtime", None) is runtime:
+                del application.state.experimental_proxy_runtime
 
 
 def create_proxy_application(
