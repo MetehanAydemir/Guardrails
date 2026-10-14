@@ -17,8 +17,10 @@ import json
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
+from nemoguardrails import RailsConfig
 from nemoguardrails.server.experimental._application import create_proxy_application
 from nemoguardrails.server.experimental._content_checker import (
     ContentAllowed,
@@ -28,6 +30,7 @@ from nemoguardrails.server.experimental._content_checker import (
 )
 from nemoguardrails.server.experimental.providers.openai.integration import create_openai_chat_integration
 from nemoguardrails.server.experimental.rails import ConfigEntry
+from nemoguardrails.server.experimental.rails._adapter import LegacyGuardrailsChecker
 from nemoguardrails.server.experimental.rails._repository import GuardrailsRepository
 
 
@@ -144,6 +147,31 @@ def test_unknown_resolved_config_fails_closed_before_upstream(tmp_path):
     assert transport.requests == []
 
 
+@pytest.mark.parametrize("rail_type", ["tool_input", "tool_output"])
+@pytest.mark.parametrize("stream", [False, True], ids=["buffered", "streaming"])
+def test_per_tool_rails_fail_before_upstream(tmp_path, monkeypatch, rail_type, stream):
+    """Reject configured tool flows even when the global flow list is empty."""
+
+    config = RailsConfig.from_content(
+        config={"models": [], "rails": {rail_type: {"per_tool": {"unused": [], "lookup": ["tool check"]}}}}
+    )
+    resolved_checker = LegacyGuardrailsChecker(MagicMock(config=config))
+    monkeypatch.setattr(GuardrailsRepository, "get", MagicMock(return_value=resolved_checker))
+    transport = RecordingTransport()
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        rails_configs=(config_entry(tmp_path),),
+        http_transport_factory=lambda: transport,
+    )
+
+    with TestClient(application) as client:
+        response = client.post("/v1/chat/completions", json={**chat_request(), "stream": stream})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "unsupported_rail_types"
+    assert transport.requests == []
+
+
 def test_unsupported_resolved_checker_configuration_fails_before_upstream(tmp_path, monkeypatch):
     resolved_checker = checker()
     resolved_checker.inspection_policy.side_effect = UnsupportedContentCheckerConfiguration("retrieval rails")
@@ -161,6 +189,16 @@ def test_unsupported_resolved_checker_configuration_fails_before_upstream(tmp_pa
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "unsupported_rail_types"
     assert transport.requests == []
+
+
+@pytest.mark.parametrize("rail_type", ["tool_input", "tool_output"])
+def test_empty_per_tool_flows_do_not_enable_unsupported_rails(rail_type):
+    """Treat a tool entry without flows as unconfigured, as the core does."""
+
+    config = RailsConfig.from_content(config={"models": [], "rails": {rail_type: {"per_tool": {"lookup": []}}}})
+    resolved_checker = LegacyGuardrailsChecker(MagicMock(config=config))
+
+    assert resolved_checker.inspection_policy() == ContentInspectionPolicy(False, False)
 
 
 def test_resolved_checker_policy_controls_each_request_representation(tmp_path, monkeypatch):
