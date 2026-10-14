@@ -21,7 +21,9 @@ import anyio
 import httpx
 import pytest
 
-from nemoguardrails import RailsConfig
+from nemoguardrails import Guardrails, RailsConfig
+from nemoguardrails.guardrails.iorails import IORails
+from nemoguardrails.http.transport import HttpxHTTPClient
 from nemoguardrails.server.experimental import _runtime, rails
 from nemoguardrails.server.experimental._application import create_proxy_application
 from nemoguardrails.server.experimental._runtime import ServerRuntime
@@ -240,6 +242,54 @@ async def test_shutdown_is_shielded_and_concurrent_closes_do_not_duplicate_clean
         await repository.close()
     await asyncio.gather(repository.close(), repository.close())
     instance.shutdown.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_repository_retries_real_core_shutdown_after_queue_timeout(tmp_path, monkeypatch):
+    """Retain the real engine until interrupted worker cleanup completes."""
+
+    monkeypatch.setattr(_repository, "_SHUTDOWN_TIMEOUT_SECONDS", 0.02)
+    repository = GuardrailsRepository((ConfigEntry("policy", config_path(tmp_path)),))
+    await repository.startup()
+    facade = repository._checkers["policy"]._rails
+    assert isinstance(facade, Guardrails)
+    core = facade.rails_engine
+    assert isinstance(core, IORails)
+    queue = core._generate_async_queue
+    workers = tuple(queue._workers)
+    http_owner = core.rails_manager._http_client
+    assert isinstance(http_owner, HttpxHTTPClient)
+    http_client = http_owner._client
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def unfinished_check():
+        entered.set()
+        await release.wait()
+
+    pending = asyncio.create_task(queue.submit(unfinished_check))
+    try:
+        with anyio.fail_after(1):
+            await entered.wait()
+            await repository.close()
+        assert "policy" in repository._checkers
+        assert any(not worker.done() for worker in workers)
+
+        release.set()
+        with anyio.fail_after(1):
+            await pending
+            await repository.close()
+        assert not repository._checkers
+        assert all(worker.done() for worker in workers)
+        assert http_client.is_closed
+    finally:
+        release.set()
+        pending.cancel()
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(pending, *workers, return_exceptions=True)
+        await http_client.aclose()
+        await repository.close()
 
 
 @pytest.mark.asyncio
