@@ -25,7 +25,7 @@ from nemoguardrails.server.experimental._content_checker import ContentInspectio
 from nemoguardrails.server.experimental._provider_transport import ProviderTransport
 from nemoguardrails.server.experimental.providers.openai.integration import create_openai_chat_router
 from tests.server.experimental.checkers import StaticChecker
-from tests.server.experimental.conformance.openai.support import source_validator
+from tests.server.experimental.conformance.openai.chat_completions.support import source_validator
 
 
 class ResponseBytes(httpx.AsyncByteStream):

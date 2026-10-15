@@ -26,8 +26,12 @@ from nemoguardrails.server.experimental.providers.openai.chat_completions.endpoi
 from nemoguardrails.server.experimental.providers.openai.dialects.litellm.chat_completions import (
     LITELLM_CHAT_COMPLETIONS_ENDPOINT,
 )
-from tests.server.experimental.conformance.openai.http_support import assert_output_error, checker_for, proxy
-from tests.server.experimental.conformance.openai.support import (
+from tests.server.experimental.conformance.openai.chat_completions.http_support import (
+    assert_output_error,
+    checker_for,
+    proxy,
+)
+from tests.server.experimental.conformance.openai.chat_completions.support import (
     chat_chunk,
     chat_request,
     chat_response,

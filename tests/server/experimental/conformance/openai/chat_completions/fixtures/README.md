@@ -13,19 +13,19 @@ licensed MIT. Original source SHA-256:
 Extract SHA-256:
 `a84917786d64f8a04998da6f166b9b293eba20a1f093dd49ac69a1498f78454f`.
 
-See the [conformance guide](../../README.md) for test scope and the source's
+See the [conformance guide](../../../README.md) for test scope and the source's
 legacy `nullable` interpretation.
 
 To reproduce, download the descriptor's exact `download_url`, then run:
 
 ```bash
-uv run --locked python tests/server/experimental/conformance/openai/fixtures/extract_source.py \
+uv run --locked python tests/server/experimental/conformance/openai/chat_completions/fixtures/extract_source.py \
   /path/to/openapi.yaml \
   nemoguardrails/server/experimental/contracts/openai/source.yaml \
-  tests/server/experimental/conformance/openai/fixtures/pinned.openapi.yaml
+  tests/server/experimental/conformance/openai/chat_completions/fixtures/pinned.openapi.yaml
 ```
 
 The extractor verifies the source digest and rejects non-component references.
 After a reviewed source or extraction change, update the extract hash here and
-in `../test_chat_schema.py`, then run the conformance suite.
+in `../test_schema.py`, then run the conformance suite.
 New fields require an explicit policy review.

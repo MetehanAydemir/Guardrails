@@ -27,13 +27,13 @@ from nemoguardrails.server.experimental.provider.contract_export import export_g
 from nemoguardrails.server.experimental.provider.projection_policy import field_coverage, field_policy
 from nemoguardrails.server.experimental.providers.openai.chat_completions.endpoint import CHAT_COMPLETIONS_ENDPOINT
 from tests.server.experimental.checkers import StaticChecker
-from tests.server.experimental.conformance.openai.http_support import (
+from tests.server.experimental.conformance.openai.chat_completions.http_support import (
     assert_native_error,
     assert_output_error,
     checker_for,
     proxy,
 )
-from tests.server.experimental.conformance.openai.support import (
+from tests.server.experimental.conformance.openai.chat_completions.support import (
     chat_chunk,
     chat_request,
     chat_response,

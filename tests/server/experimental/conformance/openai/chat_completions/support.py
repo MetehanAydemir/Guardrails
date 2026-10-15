@@ -28,7 +28,7 @@ import yaml
 from jsonschema import Draft202012Validator
 
 FIXTURE = Path(__file__).parent / "fixtures/pinned.openapi.yaml"
-DESCRIPTOR = Path(__file__).parents[5] / "nemoguardrails/server/experimental/contracts/openai/source.yaml"
+DESCRIPTOR = Path(__file__).parents[6] / "nemoguardrails/server/experimental/contracts/openai/source.yaml"
 
 
 @lru_cache
