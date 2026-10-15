@@ -97,64 +97,8 @@ request. The HTTPX transport receives that complete request and may send it
 unchanged, route it to a trusted configured origin, or handle it without
 network I/O.
 
-A routing transport can therefore use a virtual base URL:
-
-```python
-from examples.scripts.model_routing_transport import create_model_routing_transport
-from nemoguardrails.server.experimental._application import create_proxy_application
-from nemoguardrails.server.experimental.providers.openai.integration import (
-    create_openai_chat_integration,
-)
-
-openai = create_openai_chat_integration(
-    base_url="http://model-router.internal/v1",
-)
-
-application = create_proxy_application(
-    providers=(openai,),
-    checker=checker,
-    http_transport_factory=create_model_routing_transport,
-)
-```
-
-`model-router.internal` is a logical address. The routing transport sees the
-fully formed request, chooses a destination from application-owned tables, and
-delegates to a network transport. A dedicated logical hostname makes the
-boundary explicit and prevents accidental direct provider access if the
-routing transport is removed.
-
-If routing runs as a separate MaaS or gateway service, its reachable URL is the
-fixed provider base URL and no custom transport is necessary:
-
-```python
-openai = create_openai_chat_integration(
-    base_url="http://model-routing-gateway:9000/v1",
-)
-```
-
-The external gateway can then own model selection, aliases, credentials,
-retries, and provider destinations independently of Guardrails.
-
-## Model-routing example
-
-The tested
-[`model_routing_transport.py`](../../../examples/scripts/model_routing_transport.py)
-example declares canonical model routes and public aliases. A Chat Completions
-request containing `"model": "model-1"` is inspected, then routed to the
-configured `model-2` destination with its model changed to `model-2`. The
-upstream response returns to the same guarded handler and passes through output
-inspection. Model-less requests use the explicit default route.
-
-The example removes the caller's authorization value and loads the credential
-named by the selected route, preventing credentials from crossing provider
-origins. Destination URLs come only from validated application-owned
-`ModelRoute` values. Payload fields and request headers cannot select arbitrary
-URLs. Route URLs must be absolute HTTP or HTTPS URLs without embedded
-credentials, query, or fragment.
-
-The example exposes `create_model_routed_application(checker)` during this
-stage. The trusted Rails configuration work replaces that supplied static
-checker while retaining the transport boundary and its tests.
+If routing runs as a separate gateway service, use its reachable URL as the
+fixed provider base URL. No custom transport is necessary for that setup.
 
 ## Other uses
 
