@@ -44,15 +44,10 @@ from nemoguardrails.server.experimental.providers.openai.dialects.litellm.respon
 from nemoguardrails.server.experimental.providers.openai.errors import OPENAI_ERROR_MAPPING
 from nemoguardrails.server.experimental.providers.openai.responses.endpoint import RESPONSES_ENDPOINT
 from tests.recorded.cassette import cassette_request_jsons
-from tests.recorded.server.experimental.openai.responses_support import sanitize_responses_recording
 
 pytestmark = [
     pytest.mark.recorded,
-    pytest.mark.vcr(
-        ignore_hosts=["recorded-proxy.test"],
-        allow_playback_repeats=True,
-        before_record_response=sanitize_responses_recording,
-    ),
+    pytest.mark.vcr(ignore_hosts=["recorded-proxy.test"], allow_playback_repeats=True),
     pytest.mark.asyncio,
 ]
 

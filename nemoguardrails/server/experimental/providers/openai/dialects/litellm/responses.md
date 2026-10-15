@@ -89,10 +89,12 @@ channels, and other backend-specific fields remain unsupported and fail closed.
 Flat diagnostic errors and other inherited events have synthetic unit coverage;
 they are not claimed as recorded observations.
 
-The recording sanitizer removes credentials, routing/item identifiers, timestamps
-and encrypted provider state. It preserves distinct item IDs and their references,
-text, event order, sequence numbers and field presence. Privacy redaction is not
-a policy repair: unsupported fields must not be deleted to make replay pass.
+Recordings use the same shared sanitizer as the Chat recordings: credentials are
+removed and selected response metadata is normalized. There is no Responses-only
+content redaction. Assistant text, encrypted content, nested item identifiers,
+event order, sequence numbers and field presence are retained, subject to the
+shared credential filters. Sanitization is not a policy repair: unsupported
+fields must not be deleted to make replay pass.
 Exact passthrough comparisons are against the sanitized replay bytes, not a claim
 that the cassette preserves original HTTP chunk boundaries or all original bytes.
 
