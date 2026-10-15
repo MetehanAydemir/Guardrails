@@ -1,0 +1,300 @@
+version: 1
+interactions:
+- request:
+    method: POST
+    uri: https://inference-api.nvidia.com/v1/responses
+    headers:
+      host:
+      - inference-api.nvidia.com
+      accept:
+      - '*/*'
+      connection:
+      - keep-alive
+      user-agent:
+      - python-httpx/0.28.1
+      accept-encoding:
+      - identity
+      content-type:
+      - application/json
+    parsed_body:
+      model: openai/openai/gpt-5-nano
+      input: 'Reply with exactly: Hello.'
+      stream: true
+      store: false
+      max_output_tokens: 256
+      reasoning:
+        effort: minimal
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      cache-control:
+      - no-cache
+      content-type:
+      - text/event-stream; charset=utf-8
+      content-security-policy:
+      - frame-ancestors 'none'
+      transfer-encoding:
+      - chunked
+    body:
+      parsed_body:
+      - type: response.created
+        response:
+          id: recorded_id_0
+          created_at: 0
+          metadata: {}
+          model: gpt-5-nano-2025-08-07
+          object: response
+          output: []
+          parallel_tool_calls: true
+          temperature: 1.0
+          tool_choice: auto
+          tools: []
+          top_p: 1.0
+          max_output_tokens: 256
+          reasoning:
+            context: current_turn
+            effort: minimal
+            mode: standard
+            summary: null
+          status: in_progress
+          text:
+            format:
+              type: text
+            verbosity: medium
+          truncation: disabled
+          store: false
+          background: false
+          frequency_penalty: 0.0
+          presence_penalty: 0.0
+          prompt_cache_retention: in_memory
+          service_tier: auto
+          tool_usage:
+            image_gen:
+              input_tokens: 0
+              input_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              output_tokens: 0
+              output_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              total_tokens: 0
+            web_search:
+              num_requests: 0
+          top_logprobs: 0
+        sequence_number: 0
+        model: openai/openai/gpt-5-nano
+      - type: response.in_progress
+        response:
+          id: recorded_id_0
+          created_at: 0
+          metadata: {}
+          model: gpt-5-nano-2025-08-07
+          object: response
+          output: []
+          parallel_tool_calls: true
+          temperature: 1.0
+          tool_choice: auto
+          tools: []
+          top_p: 1.0
+          max_output_tokens: 256
+          reasoning:
+            context: current_turn
+            effort: minimal
+            mode: standard
+            summary: null
+          status: in_progress
+          text:
+            format:
+              type: text
+            verbosity: medium
+          truncation: disabled
+          store: false
+          background: false
+          frequency_penalty: 0.0
+          presence_penalty: 0.0
+          prompt_cache_retention: in_memory
+          service_tier: auto
+          tool_usage:
+            image_gen:
+              input_tokens: 0
+              input_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              output_tokens: 0
+              output_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              total_tokens: 0
+            web_search:
+              num_requests: 0
+          top_logprobs: 0
+        sequence_number: 1
+        model: openai/openai/gpt-5-nano
+      - type: response.output_item.added
+        output_index: 0
+        item:
+          id: recorded_id_1
+          type: reasoning
+          content: []
+          encrypted_content: '[REDACTED_ENCRYPTED_CONTENT]'
+          summary: []
+        sequence_number: 2
+        model: openai/openai/gpt-5-nano
+      - type: response.output_item.done
+        output_index: 0
+        sequence_number: 3
+        item:
+          id: recorded_id_1
+          type: reasoning
+          content: []
+          encrypted_content: '[REDACTED_ENCRYPTED_CONTENT]'
+          summary: []
+        model: openai/openai/gpt-5-nano
+      - type: response.output_item.added
+        output_index: 1
+        item:
+          id: recorded_id_2
+          type: message
+          status: in_progress
+          content: []
+          role: assistant
+        sequence_number: 4
+        model: openai/openai/gpt-5-nano
+      - type: response.content_part.added
+        item_id: recorded_id_2
+        output_index: 1
+        content_index: 0
+        part:
+          type: output_text
+          annotations: []
+          logprobs: []
+          text: ''
+        sequence_number: 5
+        model: openai/openai/gpt-5-nano
+      - type: response.output_text.delta
+        item_id: recorded_id_2
+        output_index: 1
+        content_index: 0
+        delta: Hello
+        logprobs: []
+        obfuscation: k5gxEnU5U0A
+        sequence_number: 6
+        model: openai/openai/gpt-5-nano
+      - type: response.output_text.delta
+        item_id: recorded_id_2
+        output_index: 1
+        content_index: 0
+        delta: .
+        logprobs: []
+        obfuscation: 9p6RkErDA9Rqkiy
+        sequence_number: 7
+        model: openai/openai/gpt-5-nano
+      - type: response.output_text.done
+        item_id: recorded_id_2
+        output_index: 1
+        content_index: 0
+        text: Hello.
+        logprobs: []
+        sequence_number: 8
+        model: openai/openai/gpt-5-nano
+      - type: response.content_part.done
+        item_id: recorded_id_2
+        output_index: 1
+        content_index: 0
+        part:
+          type: output_text
+          text: Hello.
+          annotations: []
+          logprobs: []
+        sequence_number: 9
+        model: openai/openai/gpt-5-nano
+      - type: response.output_item.done
+        output_index: 1
+        sequence_number: 10
+        item:
+          id: recorded_id_2
+          type: message
+          status: completed
+          content:
+          - type: output_text
+            annotations: []
+            logprobs: []
+            text: Hello.
+          role: assistant
+        model: openai/openai/gpt-5-nano
+      - type: response.completed
+        response:
+          id: recorded_id_0
+          created_at: 0
+          metadata: {}
+          model: gpt-5-nano-2025-08-07
+          object: response
+          output:
+          - id: recorded_id_3
+            summary: []
+            type: reasoning
+            content: []
+            encrypted_content: '[REDACTED_ENCRYPTED_CONTENT]'
+          - id: recorded_id_2
+            content:
+            - annotations: []
+              text: Hello.
+              type: output_text
+              logprobs: []
+            role: assistant
+            status: completed
+            type: message
+          parallel_tool_calls: true
+          temperature: 1.0
+          tool_choice: auto
+          tools: []
+          top_p: 1.0
+          max_output_tokens: 256
+          reasoning:
+            context: current_turn
+            effort: minimal
+            mode: standard
+            summary: null
+          status: completed
+          text:
+            format:
+              type: text
+            verbosity: medium
+          truncation: disabled
+          usage:
+            input_tokens: 12
+            input_tokens_details:
+              cached_tokens: 0
+              cache_write_tokens: 0
+            output_tokens: 20
+            output_tokens_details:
+              reasoning_tokens: 0
+            total_tokens: 32
+            cost: 6.312399999999999e-06
+          store: false
+          background: false
+          completed_at: 0
+          frequency_penalty: 0.0
+          presence_penalty: 0.0
+          prompt_cache_retention: in_memory
+          service_tier: default
+          tool_usage:
+            image_gen:
+              input_tokens: 0
+              input_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              output_tokens: 0
+              output_tokens_details:
+                image_tokens: 0
+                text_tokens: 0
+              total_tokens: 0
+            web_search:
+              num_requests: 0
+          top_logprobs: 0
+        sequence_number: 11
+        model: openai/openai/gpt-5-nano
+      - '[DONE]'

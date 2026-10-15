@@ -128,6 +128,15 @@ exchanges with synthetic checker decisions, not real Rails configuration.
 Replayed-body equality is not a claim of original provider-wire byte fidelity
 or live streaming delivery. Real-config and socket coverage is separate.
 
+The separately reviewed Responses recordings explicitly select the
+[LiteLLM Responses dialect](../../nemoguardrails/server/experimental/providers/openai/dialects/litellm/responses.md).
+Refresh only `tests/recorded/server/experimental/openai/test_litellm_responses.py`
+with `RECORDED_REQUIRED_KEYS=NVIDIA_INFERENCE_KEY`. Capture stores the complete
+sanitized response before checking policy; the subsequent offline replay is the
+acceptance gate. The local sanitizer preserves distinct item-ID relationships
+and removes encrypted provider state. These two cassettes establish neither Chat
+bridge nor arbitrary-backend compatibility.
+
 These six cassettes predate the dialect: their provider payloads are unchanged.
 Two buffered successes contain message `provider_specific_fields: {refusal: null}`
 and empty choice extensions. Two streaming successes contain no extension bags;
