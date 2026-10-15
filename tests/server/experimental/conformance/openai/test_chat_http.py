@@ -34,7 +34,7 @@ from nemoguardrails.server.experimental.provider.projection_policy import field_
 from nemoguardrails.server.experimental.providers.openai.chat_completions.endpoint import CHAT_COMPLETIONS_ENDPOINT
 from nemoguardrails.server.experimental.providers.openai.integration import create_openai_chat_router
 from tests.server.experimental.checkers import StaticChecker
-from tests.server.experimental.openai_conformance import (
+from tests.server.experimental.conformance.openai.support import (
     chat_chunk,
     chat_request,
     chat_response,

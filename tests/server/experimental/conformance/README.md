@@ -7,10 +7,10 @@ every OpenAI-compatible deployment.
 
 ## Coverage
 
-- `test_openai_chat_schema_conformance.py` audits every bound policy model
+- `openai/test_chat_schema.py` audits every bound policy model
   against its inspected source object, including reviewed opaque fields and
   explicit local extensions. Export consistency is a secondary check.
-- `test_openai_chat_http_conformance.py` exercises the actual router and HTTP
+- `openai/test_chat_http.py` exercises the actual router and HTTP
   dispatcher with synthetic source-valid examples. It checks metadata and byte
   preservation, exact inspected text, unsupported content, error envelopes, and
   buffered/streaming behavior with inspection enabled or disabled.
@@ -35,9 +35,9 @@ item operations on `/v1/chat/completions/{id}` and its `/messages` child are
 relayed without guardrails. Their tests check transport preservation, not full
 provider-schema validation.
 
-The [pinned source](fixtures/openai_chat/README.md) declares OpenAPI 3.1 but uses
+The [pinned source](openai/fixtures/README.md) declares OpenAPI 3.1 but uses
 legacy `nullable` annotations, including beside enums and references.
-`openai_conformance.py` explicitly interprets them for validation without
+`openai/support.py` explicitly interprets them for validation without
 changing fixture bytes or runtime policy. This adapter supports the constructs
 used by this pin, not arbitrary OpenAPI documents. Review its interpretation
 when updating the source.
@@ -53,7 +53,7 @@ keep event sequencing, terminal markers, and error envelopes protocol-specific.
 
 ```bash
 make test WORKERS=0 \
-  TEST='tests/server/experimental/test_openai_chat_schema_conformance.py tests/server/experimental/test_openai_chat_http_conformance.py' \
+  TEST='tests/server/experimental/conformance' \
   ARGS='--block-network -q'
 ```
 

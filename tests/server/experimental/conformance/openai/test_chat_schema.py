@@ -26,8 +26,8 @@ from jsonschema import Draft202012Validator
 from nemoguardrails.server.experimental.provider.contract_export import export_guard_contract
 from nemoguardrails.server.experimental.provider.projection_policy import field_coverage, model_graph
 from nemoguardrails.server.experimental.providers.openai.chat_completions.endpoint import CHAT_COMPLETIONS_ENDPOINT
-from tests.server.experimental.fixtures.openai_chat.extract_source import extract_chat_source, structural_fields
-from tests.server.experimental.openai_conformance import (
+from tests.server.experimental.conformance.openai.fixtures.extract_source import extract_chat_source, structural_fields
+from tests.server.experimental.conformance.openai.support import (
     DESCRIPTOR,
     FIXTURE,
     normalize_nullable,
