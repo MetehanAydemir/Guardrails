@@ -2,8 +2,8 @@
 
 These tests compare an independently pinned provider specification, authoritative
 typed Python declarations, and observable proxy behavior. They currently cover
-OpenAI Chat Completions; the source pin does not establish compatibility with
-every OpenAI-compatible deployment.
+OpenAI Chat Completions and its explicitly selected LiteLLM dialect, not every
+OpenAI-compatible deployment.
 
 ## Coverage
 
@@ -14,6 +14,15 @@ every OpenAI-compatible deployment.
   dispatcher with synthetic source-valid examples. It checks metadata and byte
   preservation, exact inspected text, unsupported content, error envelopes, and
   buffered/streaming behavior with inspection enabled or disabled.
+- `openai/dialects/test_litellm_chat.py` checks dialect selection, extension
+  preservation, rejection of unreviewed content, and unchanged text targets
+  through the same HTTP harness. Cases follow the
+  [reviewed LiteLLM source inventory](../../../../nemoguardrails/server/experimental/providers/openai/dialects/litellm/README.md),
+  not the OpenAI schema or additional recordings.
+
+`openai/http_support.py` shares the Chat router/transport harness and error
+assertions; `openai/support.py` holds Chat payload and source helpers. Checker
+doubles remain shared across server tests in `../checkers.py`.
 
 Disabling inspection does not remove guarded-request validation. Unknown output
 content fails closed when inspected and is relayed unchanged when uninspected.

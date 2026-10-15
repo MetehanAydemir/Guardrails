@@ -19,21 +19,20 @@ These are not provider recordings or real Rails verdicts. Expected payloads and
 policy restrictions are explicit, independent of generated guard schemas.
 """
 
-import json
-from contextlib import asynccontextmanager
-
-import httpx
 import pytest
-from fastapi import FastAPI
 from jsonschema import Draft202012Validator
 
-from nemoguardrails.server.experimental._content_checker import ContentInspectionPolicy, StreamBufferingPolicy
-from nemoguardrails.server.experimental._provider_transport import ProviderTransport
+from nemoguardrails.server.experimental._content_checker import ContentInspectionPolicy
 from nemoguardrails.server.experimental.provider.contract_export import export_guard_contract
 from nemoguardrails.server.experimental.provider.projection_policy import field_coverage, field_policy
 from nemoguardrails.server.experimental.providers.openai.chat_completions.endpoint import CHAT_COMPLETIONS_ENDPOINT
-from nemoguardrails.server.experimental.providers.openai.integration import create_openai_chat_router
 from tests.server.experimental.checkers import StaticChecker
+from tests.server.experimental.conformance.openai.http_support import (
+    assert_native_error,
+    assert_output_error,
+    checker_for,
+    proxy,
+)
 from tests.server.experimental.conformance.openai.support import (
     chat_chunk,
     chat_request,
@@ -110,71 +109,6 @@ UNSUPPORTED_MESSAGES = [
         id="image",
     ),
 ]
-
-
-class ResponseBytes(httpx.AsyncByteStream):
-    def __init__(self, body):
-        self.body = body
-        self.closed = False
-
-    async def __aiter__(self):
-        for offset in range(0, len(self.body), 7):
-            yield self.body[offset : offset + 7]
-
-    async def aclose(self):
-        self.closed = True
-
-
-@asynccontextmanager
-async def proxy(checker, body, *, streaming=False):
-    """Observe requests after real dispatch construction; use no live sockets."""
-    requests = []
-    source = ResponseBytes(body)
-
-    async def upstream(request):
-        requests.append(request)
-        return httpx.Response(
-            200,
-            headers={"content-type": "text/event-stream" if streaming else "application/json"},
-            stream=source,
-        )
-
-    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as upstream_client:
-        transport = ProviderTransport(upstream_client, base_url="https://provider.test")
-        app = FastAPI()
-        app.include_router(
-            create_openai_chat_router(
-                checker=checker,
-                dispatch=transport.dispatch,
-                stream_dispatch=transport.stream_dispatch,
-            )
-        )
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://proxy.test") as client:
-            yield client, requests, source
-
-
-def checker_for(inspect):
-    return StaticChecker(ContentInspectionPolicy(inspect, inspect, StreamBufferingPolicy(1, 0) if inspect else None))
-
-
-def assert_native_error(response, status, code):
-    assert response.status_code == status
-    source_validator("ErrorResponse").validate(response.json())
-    assert response.json()["error"]["code"] == code
-
-
-def assert_output_error(response, streaming):
-    code = "unsupported_chat_completions_response_shape"
-    if not streaming:
-        assert_native_error(response, 502, code)
-        return
-    assert response.status_code == 200
-    error, terminal, trailing = response.content.split(b"\n\n")
-    assert terminal == b"data: [DONE]"
-    assert trailing == b""
-    payload = json.loads(error.removeprefix(b"data: "))
-    source_validator("ErrorResponse").validate(payload)
-    assert payload["error"]["code"] == code
 
 
 @pytest.mark.parametrize("streaming", [False, True])
