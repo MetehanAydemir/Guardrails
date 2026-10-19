@@ -1,6 +1,6 @@
 .PHONY: help install
 .PHONY: test test-parallel test-serial test-benchmark test-watch test-coverage test-profile record-cassettes rewrite-cassettes replay-cassettes snapshot-cassettes check-record-test-env warm-fastembed-cache
-.PHONY: test-docs-scripts docs-fern-node-dependencies docs-fern docs-fern-strict docs-fern-live docs-fern-preview-watch docs-fern-generate-sdk docs-fern-fix-empty-links docs-fern-publish-staging docs-fern-publish-public
+.PHONY: test-docs-scripts docs-fern-node-dependencies docs-fern docs-fern-strict docs-fern-live docs-fern-preview-watch docs-fern-generate-openapi docs-fern-generate-references docs-fern-generate-sdk docs-fern-fix-empty-links docs-fern-publish-staging docs-fern-publish-public
 .PHONY: pre-commit pre-commit-install
 
 .DEFAULT_GOAL := help
@@ -94,20 +94,26 @@ $(DOCS_NODE_STAMP): package.json package-lock.json
 
 docs-fern: docs-fern-strict
 
-docs-fern-strict: docs-fern-generate-sdk
+docs-fern-strict: docs-fern-generate-references
 	node scripts/run-fern-with-ref-sdk.mjs check
 
-docs-fern-live: docs-fern-generate-sdk
+docs-fern-live: docs-fern-generate-references
 	FERN_VERSION=$$(node -p "require('./fern/fern.config.json').version") && cd fern && npx --yes "fern-api@$${FERN_VERSION}" docs dev
 
-docs-fern-publish-staging: docs-fern-generate-sdk
+docs-fern-publish-staging: docs-fern-generate-references
 	node scripts/run-fern-with-ref-sdk.mjs generate --docs --instance "$(FERN_STAGING_INSTANCE)"
 
-docs-fern-publish-public: docs-fern-generate-sdk
+docs-fern-publish-public: docs-fern-generate-references
 	node scripts/run-fern-with-ref-sdk.mjs generate --docs --instance "$(FERN_PUBLIC_INSTANCE)"
 
 docs-fern-preview-watch: docs-fern-node-dependencies
 	node scripts/watch-fern-preview.mjs
+
+docs-fern-generate-references: docs-fern-generate-openapi docs-fern-generate-sdk
+
+docs-fern-generate-openapi:
+	# Importing the server schema does not require publishing credentials.
+	env -u FERN_TOKEN -u DOCS_FERN_TOKEN uv run --locked --extra server python scripts/export_openapi.py
 
 docs-fern-generate-sdk: docs-fern-node-dependencies
 	FERN_VERSION=$$(node -p "require('./fern/fern.config.json').version") && cd fern && npx --yes "fern-api@$${FERN_VERSION}" docs md generate --library guardrails-python-sdk
@@ -162,6 +168,8 @@ help:
 		'  docs-fern-publish-staging Publish Fern docs to the staging instance' \
 		'  docs-fern-publish-public Publish Fern docs to the public instance' \
 		'  docs-fern-preview-watch Watch and publish Fern preview for the current branch' \
+		'  docs-fern-generate-references Regenerate OpenAPI and Python SDK references' \
+		'  docs-fern-generate-openapi Regenerate the OpenAPI specification from FastAPI' \
 		'  docs-fern-generate-sdk Regenerate Python SDK reference pages with Fern' \
 		'  docs-fern-fix-empty-links Replace empty Markdown links with titles from Fern navigation' \
 		'' \

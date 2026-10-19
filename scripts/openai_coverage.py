@@ -19,7 +19,7 @@
 Compares the NeMo Guardrails API spec against the upstream OpenAI spec using
 oasdiff. Supports two spec sources for the guardrails side:
 
-  --guardrails-spec fern/openapi.yml   (default, the hand-written docs spec)
+  --guardrails-spec fern/openapi.yml   (default, the generated Fern base spec)
   --fastapi                            (exports app.openapi() at runtime)
 
 The OpenAI spec can be a local file or fetched from upstream:

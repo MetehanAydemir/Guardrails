@@ -1,4 +1,4 @@
-# Docs conformance: diffs the hand-written Fern spec (fern/openapi.yml)
+# Docs conformance: diffs the generated Fern base spec (fern/openapi.yml)
 # against the upstream OpenAI spec.  Runs on PRs that touch the spec and
 # weekly to surface upstream drift.
 #
@@ -12,6 +12,7 @@ on:
     paths:
       - "fern/openapi.yml"
       - "scripts/openai_coverage.py"
+      - ".github/workflows/api-conformance-docs.yml"
 
   schedule:
     - cron: "23 9 * * 1"
@@ -64,9 +65,16 @@ jobs:
         env:
           BASE_REF: origin/${{ github.base_ref }}
         run: |
-          uv run --locked python scripts/openai_coverage.py \
-            --openai-spec /tmp/openai-spec.yml --check-breaking \
-            --base-ref "$BASE_REF"
+          # Initialize the generated baseline only when runtime sources are unchanged.
+          # The legacy handwritten schema has drifted from the implementation.
+          if ! git cat-file -e "$BASE_REF:scripts/export_openapi.py" 2>/dev/null &&
+             git diff --quiet "$BASE_REF" HEAD -- nemoguardrails pyproject.toml uv.lock; then
+            echo "::notice::Initializing generated OpenAPI baseline from unchanged runtime sources."
+          else
+            uv run --locked python scripts/openai_coverage.py \
+              --openai-spec /tmp/openai-spec.yml --check-breaking \
+              --base-ref "$BASE_REF"
+          fi
 
       - name: Check conformance
         run: |

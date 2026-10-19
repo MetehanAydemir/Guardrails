@@ -12,6 +12,9 @@ Product documentation for the toolkit is available at
 
 1. Make sure Node.js 22 is installed.
 
+1. Install Python 3.10 through 3.13 and [uv](https://docs.astral.sh/uv/getting-started/installation/)
+   for OpenAPI generation. The first generation run installs the locked Python dependencies.
+
 1. Install the documentation dependencies:
 
    ```console
@@ -25,6 +28,53 @@ Product documentation for the toolkit is available at
    ```
 
    The Fern docs configuration is validated with the pinned Fern CLI.
+
+## Updating the API Reference
+
+`fern/openapi.yml` is generated from the stable FastAPI server routes and Pydantic
+models. After changing a public server contract, install the locked development
+dependencies and regenerate the specification:
+
+```bash
+uv sync --locked --group dev
+uv run --locked python scripts/export_openapi.py
+```
+
+Commit the regenerated file with the source change. The generator imports the
+application without starting its lifespan or calling model providers. It disables
+the optional chat UI so installed extras do not change the exported contract.
+
+`make docs-fern`, `make docs-fern-live`, and both publish targets regenerate the
+OpenAPI specification and Python SDK reference through
+`make docs-fern-generate-references`. You can also run that target directly.
+
+Keep API reference summaries, examples, and streaming or error documentation in
+`fern/openapi-overlay.yml`. Fern applies this overlay to the generated specification
+through `fern/generators.yml`. Change request and response model fields in Python
+instead of overriding them in the overlay.
+
+Before handing off a change, check that the generated file is current and validate
+the documentation:
+
+```bash
+uv run --locked python scripts/export_openapi.py --check
+make docs-fern
+```
+
+The `OpenAPI freshness` workflow runs the same read-only freshness check on pull
+requests and `develop` pushes affecting the contract or its generation inputs. A
+stale or missing file fails the check and prints the regeneration command.
+
+The documentation conformance workflow initializes the generated baseline without
+comparing it to the legacy handwritten schema only when the base revision has no
+exporter and the runtime sources and dependency files are unchanged. Subsequent
+changes retain the existing breaking-change comparison.
+
+`npm run test:docs-scripts` also compiles the API reference with Fern and checks
+existing endpoint identities and curated examples against the pre-generation
+baseline in `scripts/tests/fixtures/openapi-reference.json`. Update that baseline
+only when an intentional documentation change modifies those public examples or
+endpoint identities.
 
 ## Live Documentation Server
 
@@ -63,6 +113,13 @@ Once the server is running:
 Press `Ctrl+C` to stop the server.
 
 ## Publishing the Documentation
+
+Both `make docs-fern-publish-staging` and `make docs-fern-publish-public` regenerate
+the OpenAPI specification and Python SDK reference before publishing. If either
+generation step fails, publishing stops. The GitHub Actions staging job and PR
+preview job use the same preparation target. OpenAPI generation runs without Fern
+publishing credentials; the existing freshness CI check still requires you to
+commit schema updates with the source change.
 
 Tag the commit to publish with `docs-v<semver>`.
 Push the tag to GitHub.

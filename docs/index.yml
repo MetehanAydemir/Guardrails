@@ -619,6 +619,10 @@ navigation:
               - endpoint: POST /v1/chat/completions
                 title: Create Chat Completion
                 slug: chat-completions
+          - checks:
+              - endpoint: POST /v1/checks
+                title: Check Content
+                slug: check-content
           - models:
               - endpoint: GET /v1/models
                 title: List Models
