@@ -51,6 +51,19 @@ export function main(args = process.argv.slice(2), environment = process.env) {
     throw new Error(`Fern ref worktree is at ${actualCommit}, expected ${expectedCommit}`);
   }
 
+  // New snapshots omit the build artifact; older snapshots retain their own spec.
+  if (existsSync(path.join(worktreeRoot, "scripts", "export_openapi.py"))) {
+    const exportEnvironment = { ...environment, FERN_REF_SDK_HOOK: "0" };
+    delete exportEnvironment.FERN_TOKEN;
+    delete exportEnvironment.DOCS_FERN_TOKEN;
+    exportEnvironment.UV_PROJECT_ENVIRONMENT = path.join(worktreeRoot, ".venv");
+    execFileSync("uv", ["run", "--locked", "--extra", "server", "python", "scripts/export_openapi.py"], {
+      cwd: worktreeRoot,
+      env: exportEnvironment,
+      stdio: "inherit",
+    });
+  }
+
   const fernRoot = path.join(worktreeRoot, "fern");
   const docsConfigPath = path.join(fernRoot, "docs.yml");
   const fernConfigPath = path.join(fernRoot, "fern.config.json");

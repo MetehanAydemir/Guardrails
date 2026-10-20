@@ -26,6 +26,7 @@ if (tool === "uv") {
   fail("openapi");
   fs.writeFileSync(path.join(root, "fern/openapi.yml"), "fresh");
 } else if (tool === "npx") {
+  assert.equal(fs.readFileSync(path.join(root, "fern/openapi.yml"), "utf8"), "fresh");
   assert.deepEqual(args, ["--yes", "fern-api@" + fernVersion, "docs", "md", "generate", "--library", "guardrails-python-sdk"]);
   record("sdk");
   fail("sdk");
@@ -74,7 +75,11 @@ for (const destination of ["staging", "public"]) {
         const instance = `test-${destination}.docs.buildwithfern.com/nemo/guardrails`;
         const runs = failure ? 1 : 2;
         for (let index = 0; index < runs; index += 1) {
-          writeFileSync(path.join(root, "fern/openapi.yml"), "stale");
+          if (index === 0) {
+            rmSync(path.join(root, "fern/openapi.yml"), { force: true });
+          } else {
+            writeFileSync(path.join(root, "fern/openapi.yml"), "stale");
+          }
           rmSync(path.join(root, "normalized"), { force: true });
           const result = spawnSync("make", [
             "--no-print-directory", "-j2", `docs-fern-publish-${destination}`,

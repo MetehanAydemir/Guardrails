@@ -1,4 +1,4 @@
-name: OpenAPI freshness
+name: OpenAPI generation
 
 on:
   pull_request:
@@ -44,7 +44,7 @@ jobs:
           python-version: "3.12"
       - uses: ./.github/actions/setup-uv
       - run: uv sync --locked --group dev
-      - name: Check generated specification
-        run: uv run --locked python scripts/export_openapi.py --check
+      - name: Generate specification from this revision
+        run: make docs-fern-generate-openapi
       - name: Test exporter without provider calls
         run: make test WORKERS=1 TEST=tests/server/test_export_openapi.py

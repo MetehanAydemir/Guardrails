@@ -16,6 +16,7 @@
 """Exercise the exporter CLI against the real application without network access."""
 
 import os
+import runpy
 import subprocess
 import sys
 from pathlib import Path
@@ -109,8 +110,47 @@ def test_export_is_identical_across_processes(tmp_path, exported):
     assert output.read_text(encoding="utf-8") == exported
 
 
-def test_committed_spec_matches_offline_export(exported):
-    assert (ROOT / "fern" / "openapi.yml").read_text(encoding="utf-8") == exported
+def test_generated_spec_is_ignored():
+    result = subprocess.run(
+        ["git", "check-ignore", "--no-index", "fern/openapi.yml"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout.strip() == "fern/openapi.yml"
+    tracked = subprocess.run(
+        ["git", "ls-files", "--error-unmatch", "fern/openapi.yml"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    assert tracked.returncode != 0
+
+
+@pytest.mark.parametrize("status", [0, 1])
+def test_breaking_check_compares_generated_base_instead_of_git(monkeypatch, tmp_path, exported, status):
+    check_breaking = runpy.run_path(str(ROOT / "scripts/openai_coverage.py"))["_check_breaking"]
+    base = tmp_path / "base.yml"
+    current = tmp_path / "current.yml"
+    base.write_text(exported, encoding="utf-8")
+    current.write_text(exported, encoding="utf-8")
+    calls = []
+
+    def compare(command, **kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, status, stdout="comparison result", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", compare)
+    assert check_breaking(str(current), base_spec=base) is (status == 0)
+    assert len(calls) == 1
+    assert calls[0][:4] == ["oasdiff", "breaking", str(base), str(current)]
+
+
+def test_breaking_check_fails_when_generated_baseline_is_missing(tmp_path):
+    check_breaking = runpy.run_path(str(ROOT / "scripts/openai_coverage.py"))["_check_breaking"]
+    with pytest.raises(FileNotFoundError, match="Generated comparison specification is missing"):
+        check_breaking(str(tmp_path / "current.yml"), base_spec=tmp_path / "missing.yml")
 
 
 def test_documented_checks_example_reaches_the_engine(monkeypatch):
@@ -168,6 +208,8 @@ def test_conformance_baseline_initialization_requires_unchanged_runtime(tmp_path
     git("init", "--quiet")
     (tmp_path / "nemoguardrails").mkdir()
     (tmp_path / "scripts").mkdir()
+    (tmp_path / "fern").mkdir()
+    (tmp_path / "fern/fern.config.json").write_text('{"version": "5.123.0"}\n', encoding="utf-8")
     runtime = tmp_path / "nemoguardrails" / "api.py"
     runtime.write_text("original\n", encoding="utf-8")
     exporter = tmp_path / "scripts" / "export_openapi.py"
@@ -186,12 +228,20 @@ def test_conformance_baseline_initialization_requires_unchanged_runtime(tmp_path
     executable = tmp_path / "uv"
     executable.write_text("#!/bin/sh\necho compatibility-check-ran\n", encoding="utf-8")
     executable.chmod(0o755)
+    npx = tmp_path / "npx"
+    npx.write_text("#!/bin/sh\necho fern-export-ran\n", encoding="utf-8")
+    npx.chmod(0o755)
     workflow = yaml.safe_load((ROOT / ".github/workflows/api-conformance-docs.yml").read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["docs"]["steps"] if s.get("name") == "Check for breaking changes")
     result = subprocess.run(
         ["bash", "-e", "-c", step["run"]],
         cwd=tmp_path,
-        env={**os.environ, "BASE_REF": base, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]},
+        env={
+            **os.environ,
+            "BASE_REF": base,
+            "RUNNER_TEMP": str(tmp_path / "runner"),
+            "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
+        },
         capture_output=True,
         text=True,
         check=True,

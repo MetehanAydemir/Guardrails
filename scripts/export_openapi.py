@@ -35,6 +35,7 @@ HEADER = """# SPDX-FileCopyrightText: Copyright (c) 2026 NVIDIA CORPORATION & AF
 
 
 def main() -> int:
+    """Generate the build artifact, or verify an existing local export."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=SPEC_PATH, help="Output YAML path")
     parser.add_argument("--check", action="store_true", help="Fail if the output needs regeneration; do not write it")

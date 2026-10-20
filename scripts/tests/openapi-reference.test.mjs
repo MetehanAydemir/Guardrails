@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { parse } from "yaml";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const baseline = JSON.parse(readFileSync(new URL("./fixtures/openapi-reference.json", import.meta.url), "utf8"));
@@ -24,9 +25,15 @@ function profile(endpoint) {
   };
 }
 
-test("Fern integration preserves existing API reference routes and curated examples", { timeout: 120_000 }, () => {
+test("Fern integration preserves existing API reference routes and curated examples", { timeout: 240_000 }, () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "guardrails-openapi-reference-"));
   try {
+    const generation = spawnSync("make", ["docs-fern-generate-openapi"], {
+      cwd: root,
+      encoding: "utf8",
+      timeout: 90_000,
+    });
+    assert.equal(generation.status, 0, `${generation.error ?? ""}\n${generation.stdout}\n${generation.stderr}`);
     const output = path.join(directory, "api-ir.json");
     const { version } = JSON.parse(readFileSync(path.join(root, "fern/fern.config.json"), "utf8"));
     const result = spawnSync("npx", ["--yes", `fern-api@${version}`, "ir", output], {
@@ -54,6 +61,19 @@ test("Fern integration preserves existing API reference routes and curated examp
       },
       response: { status: "passed", content: "What is the capital of France?" },
     }]);
+
+    const specPath = path.join(directory, "published-api.yml");
+    const specExport = spawnSync("npx", ["--yes", `fern-api@${version}`, "export", specPath], {
+      cwd: path.join(root, "fern"),
+      encoding: "utf8",
+      timeout: 110_000,
+    });
+    assert.equal(specExport.status, 0, specExport.stdout + specExport.stderr);
+    const spec = parse(readFileSync(specPath, "utf8"));
+    assert.deepEqual(spec.components.schemas.ErrorResponse.required, ["error"]);
+    assert.deepEqual(spec.components.schemas.RailsConfigInfo.required, ["id"]);
+    assert.equal(spec.paths["/v1/rails/configs"].get.responses["200"].content["application/json"].schema.items.$ref,
+      "#/components/schemas/RailsConfigInfo");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
