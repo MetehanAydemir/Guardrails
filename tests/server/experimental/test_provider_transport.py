@@ -31,6 +31,7 @@ from nemoguardrails.server.experimental._http_kernel import (
     BufferedHttpRequest,
     BufferedHttpResponse,
     HttpDispatchFailed,
+    InvalidContentLength,
     ResponseBodyTooLarge,
 )
 from nemoguardrails.server.experimental._provider_transport import ProviderTransport
@@ -681,3 +682,94 @@ async def test_bodyless_passthrough_closes_upstream_before_returning(method, sta
     assert response.status_code == status
     assert response.headers.get("content-length") == length
     assert stream.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("version", "method", "headers", "chunks", "expected_length", "expected_encoding"),
+    [
+        ("1.1", "GET", (), (), None, None),
+        ("1.1", "HEAD", (), (), None, None),
+        ("1.0", "GET", (), (), None, None),
+        ("1.1", "POST", ((b"Content-Length", b"6"),), (b"abc", b"def"), "6", None),
+        ("1.1", "POST", ((b"content-length", b"0"),), (), "0", None),
+        ("1.1", "POST", ((b"transfer-encoding", b"chunked"),), (b"abc", b"def"), None, "chunked"),
+        ("2", "POST", (), (b"abc", b"def"), None, "chunked"),
+        ("3", "POST", (), (b"abc", b"def"), None, "chunked"),
+    ],
+)
+async def test_passthrough_preserves_request_framing(
+    version, method, headers, chunks, expected_length, expected_encoding
+):
+    received = []
+    remaining = iter(chunks)
+    reads = 0
+
+    async def receive():
+        nonlocal reads
+        reads += 1
+        chunk = next(remaining, b"")
+        return {"type": "http.request", "body": chunk, "more_body": bool(chunk)}
+
+    class CaptureTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            assert reads == 0
+            assert request.headers.get("content-length") == expected_length
+            assert request.headers.get("transfer-encoding") == expected_encoding
+            async for chunk in request.stream:
+                if chunk:
+                    received.append(chunk)
+            return httpx.Response(204, stream=TrackedStream([]))
+
+    request = Request(
+        {
+            "type": "http",
+            "http_version": version,
+            "method": method,
+            "path": "/v1/files",
+            "query_string": b"",
+            "headers": headers,
+        },
+        receive,
+    )
+    async with httpx.AsyncClient(transport=CaptureTransport()) as client:
+        transport = ProviderTransport(UpstreamSettings("https://provider.test"), client)
+        response = await _passthrough_response(request, transport)
+    assert response.status_code == 204
+    assert received == list(chunks)
+    if not headers and version in {"1.0", "1.1"}:
+        assert reads == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "headers",
+    [
+        ((b"content-length", b"-1"),),
+        ((b"content-length", b"+3"),),
+        ((b"content-length", b""),),
+        ((b"content-length", b"3, 3"),),
+        ((b"content-length", b"3"), (b"Content-Length", b"3")),
+        ((b"content-length", b"3"), (b"transfer-encoding", b"chunked")),
+    ],
+)
+async def test_streamed_requests_reject_invalid_lengths_before_dispatch(headers):
+    async def body():
+        pytest.fail("Invalid framing must be rejected before reading the body.")
+        yield b""
+
+    async def respond(_request):
+        pytest.fail("Invalid framing must not reach the upstream.")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        transport = ProviderTransport(UpstreamSettings("https://provider.test"), client)
+        with pytest.raises(InvalidContentLength):
+            await transport.open(
+                method="POST",
+                path="/v1/files",
+                raw_path=b"/v1/files",
+                query=b"",
+                headers=headers,
+                body=body(),
+                require_identity_response=False,
+            )

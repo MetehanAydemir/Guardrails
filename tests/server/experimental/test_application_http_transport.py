@@ -294,6 +294,21 @@ def test_passthrough_streams_bodies_outside_guarded_limits_and_preserves_represe
     assert transport.response_streams[0].closed is True
 
 
+@pytest.mark.parametrize("length", ["invalid", "-1", "3, 3"])
+def test_passthrough_renders_invalid_content_length_without_dispatch(length):
+    transport = TrackingTransport()
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        checker=StaticChecker(),
+        http_transport_factory=lambda: transport,
+    )
+    with TestClient(application) as client:
+        response = client.post("/v1/files", content=b"abc", headers={"content-length": length})
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_content_length"
+    assert not transport.requests
+
+
 def test_application_instances_own_independent_runtime_resources():
     first_transport = TrackingTransport()
     second_transport = TrackingTransport()

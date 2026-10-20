@@ -27,6 +27,7 @@ from nemoguardrails.server.experimental._http_kernel import (
     BufferedHttpResponse,
     HttpDispatchFailed,
     HttpHeaders,
+    InvalidContentLength,
     ResponseBodyTooLarge,
     _end_to_end_headers,
 )
@@ -67,6 +68,7 @@ def _request_headers(
     control_headers: frozenset[bytes],
     *,
     require_identity_response: bool,
+    preserve_content_length: bool = False,
 ) -> list[tuple[bytes, bytes]]:
     """Remove connection and proxy-control headers; let HTTPX rebuild host and framing."""
 
@@ -82,6 +84,17 @@ def _request_headers(
     if require_identity_response:
         excluded = excluded | {b"accept-encoding"}
     forwarded = [(name, value) for name, value in headers if name.lower() not in excluded]
+    if preserve_content_length:
+        lengths = [value for name, value in headers if name.lower() == b"content-length"]
+        if len(lengths) > 1:
+            raise InvalidContentLength("Content-Length must not be repeated.")
+        if lengths:
+            if not lengths[0].isdigit():
+                raise InvalidContentLength("Content-Length must contain only decimal digits.")
+            if any(name.lower() == b"transfer-encoding" for name, _ in headers):
+                raise InvalidContentLength("Content-Length must not accompany Transfer-Encoding.")
+            if b"content-length" not in _connection_tokens(headers) | control_headers:
+                forwarded.append((b"content-length", lengths[0]))
     if require_identity_response:
         forwarded.append((b"accept-encoding", b"identity"))
     return forwarded
@@ -206,6 +219,7 @@ class ProviderTransport:
                 headers,
                 self._control_headers,
                 require_identity_response=require_identity_response,
+                preserve_content_length=not isinstance(body, bytes),
             ),
             content=body,
             extensions={"timeout": httpx.Timeout(self._timeout).as_dict()},

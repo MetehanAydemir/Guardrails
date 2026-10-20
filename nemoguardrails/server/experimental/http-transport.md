@@ -67,6 +67,11 @@ not receive streaming bindings and reject streaming requests.
 The configured request and response body limits apply to guarded traffic whose
 JSON or SSE representation must be inspected. Pass-through request and response
 bodies for unrelated provider operations stream without those guarded limits.
+For unchanged streamed requests, one valid `Content-Length` is retained;
+duplicate, malformed, or conflicting length headers are rejected. Bodyless
+HTTP/1 requests are sent without chunked framing. HTTP/2 and HTTP/3 requests
+without length headers continue streaming, since their bodies use protocol
+frames. Guarded request lengths are recalculated from the outgoing bytes.
 The pass-through router uses the instance's shared ownership policy to reject
 local and mapped upstream aliases before opening an upstream request. Declared
 canonical pass-through methods remain available. Outer ASGI mounts are removed

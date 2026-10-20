@@ -26,6 +26,7 @@ from nemoguardrails.server.experimental._http_kernel import (
     HttpDispatchFailed,
     HttpFailureKind,
     HttpOperationFailed,
+    InvalidContentLength,
     InvalidRequestPath,
     _render_response,
     _request_path,
@@ -54,13 +55,17 @@ async def _passthrough_response(request: Request, transport: ProviderTransport) 
     query = request.scope.get("query_string", b"")
     if not isinstance(query, bytes):
         raise TypeError("The downstream query string must be bytes.")
+    headers = tuple(request.scope.get("headers", ()))
+    bodyless = request.scope.get("http_version") in {"1.0", "1.1"} and not any(
+        name.lower() in {b"content-length", b"transfer-encoding"} for name, _ in headers
+    )
     response = await transport.open(
         method=request.method,
         path=get_route_path(request.scope),
         raw_path=_request_path(request),
         query=query,
-        headers=tuple(request.scope.get("headers", ())),
-        body=request.stream(),
+        headers=headers,
+        body=b"" if bodyless else request.stream(),
         require_identity_response=False,
     )
     body = _HttpxResponseBody(response)
@@ -126,6 +131,10 @@ def create_passthrough_router(
             return _render_http_failure(rejection, errors.renderer, request.method)
         try:
             return await _passthrough_response(request, transport)
+        except InvalidContentLength as failure:
+            return _render_http_failure(
+                HttpOperationFailed(HttpFailureKind.INVALID_CONTENT_LENGTH, failure), errors.renderer, request.method
+            )
         except HttpDispatchFailed as failure:
             return _render_http_failure(
                 HttpOperationFailed(HttpFailureKind.UPSTREAM_REQUEST_FAILED, failure), errors.renderer, request.method
