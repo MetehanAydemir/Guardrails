@@ -237,26 +237,32 @@ def test_conformance_baseline_initialization_requires_unchanged_runtime(
 
     # Stand in for the compatibility command; this test exercises the real CI guard.
     executable = tmp_path / "uv"
-    executable.write_text("#!/bin/sh\necho compatibility-check-ran\n", encoding="utf-8")
+    executable.write_text("#!/bin/sh\necho compatibility-check-ran\n", encoding="utf-8", newline="\n")
     executable.chmod(0o755)
     npx = tmp_path / "npx"
-    npx.write_text("#!/bin/sh\necho fern-export-ran\n", encoding="utf-8")
+    npx.write_text("#!/bin/sh\necho fern-export-ran\n", encoding="utf-8", newline="\n")
     npx.chmod(0o755)
     workflow = yaml.safe_load((ROOT / ".github/workflows/api-conformance-docs.yml").read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["docs"]["steps"] if s.get("name") == "Check for breaking changes")
+    bash = "bash"
+    if sys.platform == "win32":
+        # Use Git Bash rather than the Windows System32 WSL launcher.
+        git_root = Path(git("--exec-path").stdout.strip()).parents[2]
+        bash = str(git_root / "bin" / "bash.exe")
     result = subprocess.run(
-        ["bash", "-e", "-c", step["run"]],
+        [bash, "-e", "-c", step["run"]],
         cwd=tmp_path,
         env={
             **os.environ,
             "BASE_REF": base,
-            "RUNNER_TEMP": str(tmp_path / "runner"),
+            "RUNNER_TEMP": (tmp_path / "runner").as_posix(),
             "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"],
         },
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
     initialize = not base_has_exporter and not runtime_changed
     assert ("Initializing generated OpenAPI baseline" in result.stdout) is initialize
     assert ("compatibility-check-ran" in result.stdout) is not initialize
