@@ -212,7 +212,7 @@ def include_provider_routes(
                 transport=plan.dispatcher,
                 errors=plan.provider.errors,
                 reserved_routes=reserved_routes,
-                guarded_operation_paths=plan.ownership.local_paths,
+                route_ownership=plan.ownership,
             ),
         )
         for plan in sorted(plans, key=lambda plan: len(plan.mount_path), reverse=True)

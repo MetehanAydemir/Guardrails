@@ -41,8 +41,9 @@ custom transports cannot be forcibly stopped by this budget.
 | --- | --- |
 | `ProviderIntegration` | Declares guarded endpoints, projections, renderers, an upstream, and provider-specific proxy control headers. |
 | `UpstreamSettings` | Defines one provider instance's local mount and initial base URL. |
+| `ProviderRoutePlan` | Shares mounted and upstream operation ownership between startup validation and request classification. |
 | `ProviderTransport` | Builds provider requests, applies guarded representation and response-buffer rules, and relays buffered or streaming responses. |
-| Pass-through router | Adapts unbuffered HTTP exchanges to ASGI responses and owns cleanup through disconnect or completion. |
+| Pass-through router | Checks route ownership before reading request bytes, adapts unbuffered HTTP exchanges to ASGI responses, and owns cleanup through disconnect or completion. |
 | HTTPX transport | Performs or replaces the final HTTPX dispatch operation. |
 
 The provider transport strips hop-by-hop headers and the integration's declared
@@ -66,6 +67,12 @@ not receive streaming bindings and reject streaming requests.
 The configured request and response body limits apply to guarded traffic whose
 JSON or SSE representation must be inspected. Pass-through request and response
 bodies for unrelated provider operations stream without those guarded limits.
+The pass-through router uses the instance's shared ownership policy to reject
+local and mapped upstream aliases before opening an upstream request. Declared
+canonical pass-through methods remain available. Outer ASGI mounts are removed
+from decoded and raw paths together, preserving encoded suffixes and queries.
+All provider routers are validated before they are installed.
+
 Only guarded operations with output inspection request identity encoding;
 pass-through traffic and uninspected guarded output preserve the caller's
 `Accept-Encoding` value.
