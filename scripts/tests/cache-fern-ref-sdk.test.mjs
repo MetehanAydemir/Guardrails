@@ -202,6 +202,53 @@ test("invalid Git configuration is rejected before Fern starts", (t) => {
   );
 });
 
+test("cold historical generation resets the parent Fern working directory and redirect guard", (t) => {
+  const root = temporaryDirectory(t);
+  const repoRoot = path.join(root, "parent");
+  const worktreeRoot = path.join(root, "snapshot");
+  for (const input of generatorInputPaths) writeFile(repoRoot, input, input);
+  writeFile(repoRoot, "scripts/normalize-fern-sdk-reference.mjs", `
+import assert from "node:assert/strict";
+import fs from "node:fs";
+assert.ok(fs.existsSync(process.env.FERN_SDK_REFERENCE_ROOT));
+`);
+  writeFile(worktreeRoot, "fern/docs.yml", `libraries:
+  ${libraryName}:
+    input:
+      git: https://example.com/repo.git
+      ref: ${"c".repeat(40)}
+    output:
+      path: ../docs/_static/python-sdk-reference
+`);
+  const originalConfig = '{"version":"5.91.0"}\n';
+  writeFile(worktreeRoot, "fern/fern.config.json", originalConfig);
+  initializeGitRepository(worktreeRoot);
+  const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreeRoot, encoding: "utf8" }).trim();
+  writeFile(root, "bin/npx", `#!${process.execPath}
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+assert.equal(fs.realpathSync(process.env.FERN_CWD), process.cwd());
+assert.equal(process.env.FERN_NO_VERSION_REDIRECTION, undefined);
+assert.equal(process.env.FERN_REF_SDK_HOOK, "0");
+const output = path.resolve("../docs/_static/python-sdk-reference");
+fs.mkdirSync(path.join(output, "${libraryName}"), {recursive: true});
+fs.writeFileSync(path.join(output, "_navigation.yml"), "navigation: []\\n");
+for (let i = 0; i < 10; i++) fs.writeFileSync(path.join(output, "${libraryName}", i + ".mdx"), "page\\n");
+`);
+  chmodSync(path.join(root, "bin/npx"), 0o755);
+  main([worktreeRoot, commit], {
+    FERN_REF_SDK_REPO_ROOT: repoRoot,
+    FERN_REF_SDK_CACHE_ROOT: path.join(root, "cache"),
+    FERN_REF_SDK_VERSION: "5.123.0",
+    FERN_CWD: path.join(repoRoot, "fern"),
+    FERN_NO_VERSION_REDIRECTION: "true",
+    PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`,
+  });
+  assert.ok(isCompleteReference(path.join(worktreeRoot, "docs/_static/python-sdk-reference")));
+  assert.equal(readFileSync(path.join(worktreeRoot, "fern/fern.config.json"), "utf8"), originalConfig);
+});
+
 test("preview watcher reports invalid Git configuration without crashing", async (t) => {
   const root = temporaryDirectory(t);
   const binDirectory = path.join(root, "bin");

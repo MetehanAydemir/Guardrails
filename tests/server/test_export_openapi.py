@@ -182,9 +182,12 @@ def test_documented_checks_example_reaches_the_engine(monkeypatch):
     rails.check_async.assert_awaited_once_with(messages=request["messages"], rail_types=[RailType.INPUT], tools=None)
 
 
+@pytest.mark.parametrize("upstream_changed", [False, True])
 @pytest.mark.parametrize("base_has_exporter", [False, True])
 @pytest.mark.parametrize("runtime_changed", [False, True])
-def test_conformance_baseline_initialization_requires_unchanged_runtime(tmp_path, base_has_exporter, runtime_changed):
+def test_conformance_baseline_initialization_requires_unchanged_runtime(
+    tmp_path, base_has_exporter, runtime_changed, upstream_changed
+):
     def git(*args):
         return subprocess.run(
             [
@@ -218,11 +221,19 @@ def test_conformance_baseline_initialization_requires_unchanged_runtime(tmp_path
     git("add", ".")
     git("commit", "--quiet", "-m", "base")
     base = git("rev-parse", "HEAD").stdout.strip()
+    git("branch", "base")
+    git("checkout", "--quiet", "-b", "pull-request")
     exporter.write_text("updated exporter\n", encoding="utf-8")
     if runtime_changed:
         runtime.write_text("changed\n", encoding="utf-8")
     git("add", ".")
     git("commit", "--quiet", "-m", "change")
+    git("checkout", "--quiet", "base")
+    if upstream_changed:
+        (tmp_path / "nemoguardrails/upstream.py").write_text("upstream change\n", encoding="utf-8")
+        git("add", ".")
+        git("commit", "--quiet", "-m", "upstream change after PR event")
+    git("merge", "--quiet", "--no-ff", "pull-request", "-m", "GitHub test merge")
 
     # Stand in for the compatibility command; this test exercises the real CI guard.
     executable = tmp_path / "uv"

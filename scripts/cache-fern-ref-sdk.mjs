@@ -115,13 +115,18 @@ export function main(args = process.argv.slice(2), environment = process.env) {
   fernConfig.version = fernVersion;
   writeFileSync(fernConfigPath, `${JSON.stringify(fernConfig, null, 2)}\n`);
 
+  // A redirected parent CLI exports its own project path and redirect guard.
+  // The historical build needs its own project and organization-required CLI.
+  const generationEnvironment = { ...environment, FERN_REF_SDK_HOOK: "0", FERN_CWD: fernRoot };
+  delete generationEnvironment.FERN_NO_VERSION_REDIRECTION;
+
   try {
     execFileSync(
       "npx",
       ["--yes", `fern-api@${fernVersion}`, "docs", "md", "generate", "--library", libraryName],
       {
         cwd: fernRoot,
-        env: { ...environment, FERN_REF_SDK_HOOK: "0" },
+        env: generationEnvironment,
         stdio: "inherit",
       },
     );

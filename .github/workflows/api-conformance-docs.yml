@@ -82,9 +82,10 @@ jobs:
 
       - name: Check for breaking changes
         if: github.event_name == 'pull_request'
-        env:
-          BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: |
+          # actions/checkout uses GitHub's test merge, whose first parent is
+          # the actual target revision; the PR event's base SHA can be stale.
+          BASE_REF=$(git rev-parse HEAD^1)
           # Initialize the generated baseline only when runtime sources are unchanged.
           # The legacy handwritten schema has drifted from the implementation.
           if ! git cat-file -e "$BASE_REF:scripts/export_openapi.py" 2>/dev/null &&
