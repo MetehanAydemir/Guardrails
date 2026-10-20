@@ -29,6 +29,12 @@ const generatorInputPaths = [
   "scripts/normalize-fern-sdk-reference.mjs",
 ];
 const minimumPageCount = 10;
+const historicalImagePages = [
+  "docs/reference/guardrails-sequence-diagrams.mdx",
+  "docs/configure-rails/guardrail-catalog/self-check.mdx",
+  "docs/configure-rails/colang/colang-1/tutorials/2-core-colang-concepts/README.mdx",
+  "docs/configure-rails/colang/colang-1/tutorials/4-input-rails/README.mdx",
+];
 
 export function main(args = process.argv.slice(2), environment = process.env) {
   const [worktreeRootArgument, expectedCommit] = args;
@@ -49,6 +55,19 @@ export function main(args = process.argv.slice(2), environment = process.env) {
   }).trim();
   if (actualCommit !== expectedCommit) {
     throw new Error(`Fern ref worktree is at ${actualCommit}, expected ${expectedCommit}`);
+  }
+
+  // Fern 5.167 misreads duplicate image titles in immutable older snapshots.
+  // Normalize only the temporary checkout, including when the SDK cache is warm.
+  for (const relativePath of historicalImagePages) {
+    const pagePath = path.join(worktreeRoot, relativePath);
+    if (!existsSync(pagePath)) continue;
+    const original = readFileSync(pagePath, "utf8");
+    const normalized = original.replace(
+      /^!\[([^\r\n]+)\]\((\S+\/_static\/puml\/\S+\.png) "([^"\r\n]+)"\)$/gm,
+      (image, alt, source, title) => alt === title ? `![${alt}](${source})` : image,
+    );
+    if (normalized !== original) writeFileSync(pagePath, normalized);
   }
 
   // New snapshots omit the build artifact; older snapshots retain their own spec.

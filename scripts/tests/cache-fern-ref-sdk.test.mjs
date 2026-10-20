@@ -28,6 +28,9 @@ import { createFernRefSdkEnvironment } from "../fern-ref-sdk-environment.mjs";
 
 const libraryName = "guardrails-python-sdk";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const historicalImagePage = "docs/configure-rails/guardrail-catalog/self-check.mdx";
+const historicalImages = '![Sequence (step 1)](../../_static/puml/dialog_rails_flow.png "Sequence (step 1)")\n![Other](../../_static/puml/other.png "Useful title")\n';
+const normalizedHistoricalImages = '![Sequence (step 1)](../../_static/puml/dialog_rails_flow.png)\n![Other](../../_static/puml/other.png "Useful title")\n';
 const generatorInputPaths = [
   "package.json",
   "package-lock.json",
@@ -142,6 +145,7 @@ for (const generatedOpenapi of [false, true]) {
       `libraries:\n  ${libraryName}:\n    input:\n      git: https://example.com/repo.git\n      ref: ${sdkInputCommit}\n    output:\n      path: ../docs/_static/python-sdk-reference\n`,
     );
     writeFile(worktreeRoot, "fern/fern.config.json", `${JSON.stringify({ version: fernVersion })}\n`);
+    writeFile(worktreeRoot, historicalImagePage, historicalImages);
     if (generatedOpenapi) {
       writeFile(worktreeRoot, "scripts/export_openapi.py", "# exporter supplied by this snapshot\n");
     } else {
@@ -191,6 +195,11 @@ for (const generatedOpenapi of [false, true]) {
     assert.equal(readFileSync(path.join(outputRoot, libraryName, "page-0.mdx"), "utf8"), "restored-0");
     assert.equal(readFileSync(path.join(worktreeRoot, "fern/openapi.yml"), "utf8"),
       generatedOpenapi ? "generated from snapshot\n" : "legacy\n");
+    assert.equal(readFileSync(path.join(worktreeRoot, historicalImagePage), "utf8"), normalizedHistoricalImages);
+    assert.equal(execFileSync("git", ["show", `${snapshotCommit}:${historicalImagePage}`], {
+      cwd: worktreeRoot,
+      encoding: "utf8",
+    }), historicalImages);
   });
 }
 
@@ -222,12 +231,14 @@ assert.ok(fs.existsSync(process.env.FERN_SDK_REFERENCE_ROOT));
 `);
   const originalConfig = '{"version":"5.91.0"}\n';
   writeFile(worktreeRoot, "fern/fern.config.json", originalConfig);
+  writeFile(worktreeRoot, historicalImagePage, historicalImages);
   initializeGitRepository(worktreeRoot);
   const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: worktreeRoot, encoding: "utf8" }).trim();
   writeFile(root, "bin/npx", `#!${process.execPath}
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+assert.equal(fs.readFileSync(path.join("..", ${JSON.stringify(historicalImagePage)}), "utf8"), ${JSON.stringify(normalizedHistoricalImages)});
 assert.equal(fs.realpathSync(process.env.FERN_CWD), process.cwd());
 assert.equal(process.env.FERN_NO_VERSION_REDIRECTION, undefined);
 assert.equal(process.env.FERN_REF_SDK_HOOK, "0");
