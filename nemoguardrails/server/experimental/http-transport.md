@@ -58,6 +58,43 @@ belongs in the application transport, not in shared client defaults. Expected
 network failures before response handoff use the provider-native error mapping;
 cancellation and programming errors are not rewritten as network failures.
 
+## Connection-pool capacity
+
+The default pool is shared across provider instances within one application
+lifespan. Each server worker has its own runtime and pool. Without an explicit
+override, HTTPX's defaults apply: 100 total connections, 20 idle keep-alive
+connections, and a five-second keep-alive expiry.
+
+The default outbound transport uses HTTP/1.1. An active streaming response holds
+a connection until its body is consumed or closed. A busy provider can therefore
+use the available connections and make requests to another provider wait. Pool
+acquisition uses the application's configured request `timeout`; exhaustion
+surfaces through the existing upstream-failure mapping.
+
+Configure the shared pool through the existing `http_transport_factory`, for example:
+
+```python
+application = create_proxy_application(
+    providers=providers,
+    checker=checker,
+    http_transport_factory=lambda: httpx.AsyncHTTPTransport(
+        limits=httpx.Limits(
+            max_connections=200,
+            max_keepalive_connections=40,
+            keepalive_expiry=5.0,
+        ),
+        trust_env=False,
+    ),
+)
+```
+
+These are aggregate connection limits, not per-provider quotas. Size them for
+expected concurrent streams and upstream capacity. Raising the limit does not
+provide fairness or isolate providers from each other's traffic.
+
+Custom transports own their pool configuration. The factory creates a fresh
+transport for each application lifespan; the runtime owns and closes it.
+
 ## Local application routes
 
 Declare health, readiness, or other local HTTP endpoints on routers and pass

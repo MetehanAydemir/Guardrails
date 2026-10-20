@@ -17,6 +17,7 @@ import asyncio
 from dataclasses import replace
 from unittest.mock import MagicMock
 
+import httpcore
 import httpx
 import pytest
 from fastapi import APIRouter, Depends, FastAPI, Request
@@ -356,6 +357,37 @@ async def test_local_routers_precede_provider_catchalls_and_reserve_paths(nested
             assert (await client.get(outer_mount + "/v1/models")).status_code == 200
             assert (await client.post(outer_mount + "/v1/chat/completions", json=chat_request())).status_code == 200
     assert len(transport.requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("maximum", [1, 2])
+async def test_transport_factory_pool_limits_apply_across_origins_until_stream_closes(monkeypatch, maximum):
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        checker=StaticChecker(),
+        http_transport_factory=lambda: httpx.AsyncHTTPTransport(
+            limits=httpx.Limits(max_connections=maximum, max_keepalive_connections=1),
+            trust_env=False,
+        ),
+    )
+    async with application.router.lifespan_context(application):
+        client = get_runtime(application).http_client
+        pool = client._transport._pool
+        monkeypatch.setattr(
+            pool,
+            "_network_backend",
+            httpcore.AsyncMockBackend([b"HTTP/1.1 200 OK\r\nContent-Length: 3\r\n\r\nabc"]),
+        )
+        async with client.stream("GET", "http://first.test/files") as first:
+            assert first.status_code == 200
+            if maximum == 1:
+                with pytest.raises(httpx.PoolTimeout):
+                    await client.get("http://second.test/models", timeout=0.01)
+            else:
+                second = await client.get("http://second.test/models", timeout=0.01)
+                assert second.content == b"abc"
+        assert (await client.get("http://third.test/models", timeout=0.01)).content == b"abc"
+    assert client.is_closed
 
 
 def test_application_instances_own_independent_runtime_resources():
