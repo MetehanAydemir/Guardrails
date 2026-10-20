@@ -19,7 +19,7 @@ from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 
 from nemoguardrails.server.experimental._content_checker import ContentChecker
 from nemoguardrails.server.experimental._http_kernel import (
@@ -56,6 +56,7 @@ def create_proxy_application(
     *,
     providers: Sequence[ProviderIntegration],
     checker: ContentChecker,
+    local_routers: Sequence[APIRouter] = (),
     path_prefix: str = "",
     http_transport_factory: HttpTransportFactory | None = None,
     max_request_body_bytes: int = DEFAULT_MAX_REQUEST_BODY_BYTES,
@@ -68,6 +69,8 @@ def create_proxy_application(
         raise TypeError("The HTTP transport factory must be callable.")
     application = FastAPI(lifespan=_lifespan)
     application.state.experimental_http_transport_factory = http_transport_factory
+    for router in local_routers:
+        application.include_router(router)
     include_provider_routes(
         application,
         providers,

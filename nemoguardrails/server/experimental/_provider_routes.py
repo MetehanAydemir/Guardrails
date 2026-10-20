@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from urllib.parse import quote
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, routing
 
 from nemoguardrails.server.experimental._content_checker import ContentChecker, validate_content_checker
 from nemoguardrails.server.experimental._guarded_proxy import create_guarded_http_operation
@@ -101,7 +101,7 @@ def _validate_provider_plans(plans: Sequence[ProviderRoutePlan]) -> None:
 
 def _registered_http_routes(router: APIRouter | FastAPI, path_prefix: str = "") -> dict[str, set[str]]:
     reserved: dict[str, set[str]] = {}
-    for route in router.routes:
+    for route in getattr(routing, "iter_route_contexts", iter)(router.routes):
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", None)
         if path is not None and methods is not None:

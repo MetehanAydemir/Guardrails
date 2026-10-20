@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.testclient import TestClient
 
 from nemoguardrails.server.experimental import _application, _runtime
@@ -307,6 +307,55 @@ def test_passthrough_renders_invalid_content_length_without_dispatch(length):
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_content_length"
     assert not transport.requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("outer_mount", ["", "/gateway"])
+async def test_local_routers_precede_provider_catchalls_and_reserve_paths(nested, outer_mount):
+    dependency_calls = []
+
+    def observe():
+        dependency_calls.append("local")
+
+    local = APIRouter(prefix="/ops", dependencies=[Depends(observe)])
+
+    @local.get("/health")
+    async def health():
+        return {"status": "ok"}
+
+    if nested:
+        parent = APIRouter()
+        parent.include_router(local, prefix="/internal")
+        local = parent
+    local_path = ("/internal" if nested else "") + "/ops/health"
+    transport = TrackingTransport()
+    application = create_proxy_application(
+        providers=(create_openai_chat_integration(),),
+        checker=StaticChecker(),
+        local_routers=(local,),
+        http_transport_factory=lambda: transport,
+    )
+    assert local_path in application.openapi()["paths"]
+    if outer_mount:
+        outer = FastAPI()
+        outer.mount(outer_mount, application)
+    else:
+        outer = application
+
+    async with application.router.lifespan_context(application):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=outer), base_url="http://proxy.test") as client:
+            response = await client.get(outer_mount + local_path)
+            assert response.status_code == 200
+            assert response.json() == {"status": "ok"}
+            assert dependency_calls == ["local"]
+            rejected = await client.post(outer_mount + local_path)
+            assert rejected.status_code == 405
+            assert rejected.headers["allow"] == "GET"
+            assert not transport.requests
+            assert (await client.get(outer_mount + "/v1/models")).status_code == 200
+            assert (await client.post(outer_mount + "/v1/chat/completions", json=chat_request())).status_code == 200
+    assert len(transport.requests) == 2
 
 
 def test_application_instances_own_independent_runtime_resources():

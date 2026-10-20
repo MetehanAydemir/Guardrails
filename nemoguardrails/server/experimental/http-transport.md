@@ -58,6 +58,39 @@ belongs in the application transport, not in shared client defaults. Expected
 network failures before response handoff use the provider-native error mapping;
 cancellation and programming errors are not rewritten as network failures.
 
+## Local application routes
+
+Declare health, readiness, or other local HTTP endpoints on routers and pass
+them to the application factory before provider catch-alls are installed:
+
+```python
+from fastapi import APIRouter
+
+local = APIRouter()
+
+@local.get("/health")
+async def health():
+    return {"status": "ok"}
+
+application = create_proxy_application(
+    providers=providers,
+    checker=checker,
+    local_routers=(local,),
+)
+```
+
+Local routes run before provider routes, and their paths are reserved from
+pass-through forwarding for unsupported methods. For example, `GET /health`
+runs the local handler and `POST /health` returns 405 without contacting a
+provider. Nested routers and their prefixes and dependencies are preserved.
+Choose local paths outside the provider's guarded operation paths.
+
+Finish declaring local routes before application construction. Endpoints added
+after construction, including with `@application.get(...)`, can be hidden by an
+existing provider catch-all and are absent from its route reservations.
+
+## Provider routing and forwarding
+
 `provider_type` identifies a protocol family. Each provider instance explicitly
 selects its own reviewed endpoints, so strict OpenAI and the LiteLLM dialect can
 coexist on different mounts. `create_openai_chat_integration(endpoint=...)`
