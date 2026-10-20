@@ -61,8 +61,13 @@ export function main(args = process.argv.slice(2), environment = process.env) {
   // Normalize only the temporary checkout, including when the SDK cache is warm.
   for (const relativePath of historicalImagePages) {
     const pagePath = path.join(worktreeRoot, relativePath);
-    if (!existsSync(pagePath)) continue;
-    const original = readFileSync(pagePath, "utf8");
+    let original;
+    try {
+      original = readFileSync(pagePath, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
     const normalized = original.replace(
       /^!\[([^\r\n]+)\]\((\S+\/_static\/puml\/\S+\.png) "([^"\r\n]+)"\)$/gm,
       (image, alt, source, title) => alt === title ? `![${alt}](${source})` : image,
